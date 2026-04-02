@@ -46,17 +46,17 @@ func (l *UpdateProductLogic) UpdateProduct(req *types.UpdateProductReq) (resp *t
 	if req.ProductPicture != "" {
 		product.ProductPicture = sql.NullString{String: req.ProductPicture, Valid: true}
 	}
-	if req.ProductPrice != 0 {
-		product.ProductPrice = req.ProductPrice
+	if req.ProductPrice != nil {
+		product.ProductPrice = *req.ProductPrice
 	}
-	if req.ProductSellingPrice != 0 {
-		product.ProductSellingPrice = req.ProductSellingPrice
+	if req.ProductSellingPrice != nil {
+		product.ProductSellingPrice = *req.ProductSellingPrice
 	}
-	if req.ProductNum != 0 {
-		product.ProductNum = req.ProductNum
+	if req.ProductNum != nil {
+		product.ProductNum = *req.ProductNum
 	}
-	if req.ProductIsPromotion != 0 {
-		product.ProductIsPromotion = req.ProductIsPromotion
+	if req.ProductIsPromotion != nil {
+		product.ProductIsPromotion = *req.ProductIsPromotion
 	}
 
 	if err := l.svcCtx.ProductModel.Update(l.ctx, product); err != nil {

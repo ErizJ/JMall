@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
@@ -16,6 +17,7 @@ type (
 		categoryModel
 		withSession(session sqlx.Session) CategoryModel
 		FindAll(ctx context.Context) ([]*Category, error)
+		FindByIds(ctx context.Context, ids []int64) ([]*Category, error)
 		FindOneByCategoryName(ctx context.Context, name string) (*Category, error)
 		IncrCategoryHot(ctx context.Context, categoryId int64) error
 		ResetAllCategoryHot(ctx context.Context) error
@@ -71,4 +73,23 @@ func (m *customCategoryModel) ResetAllCategoryHot(ctx context.Context) error {
 	query := fmt.Sprintf("update %s set `category_hot`=0", m.table)
 	_, err := m.conn.ExecCtx(ctx, query)
 	return err
+}
+
+func (m *customCategoryModel) FindByIds(ctx context.Context, ids []int64) ([]*Category, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	query := fmt.Sprintf("select %s from %s where `category_id` in (%s)", categoryRows, m.table, placeholders)
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	var resp []*Category
+	err := m.conn.QueryRowsCtx(ctx, &resp, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }

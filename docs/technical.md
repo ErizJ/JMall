@@ -1021,44 +1021,36 @@ AddCollect（首次）   → CategoryHot+1, ProductHot+1
 
 ---
 
-## 13. 已知问题与注意事项
+## 13. ~~已知问题~~（已修复）
 
-### 分类 ID 不一致
+以下问题均已修复，此章节保留作为变更记录。
 
-`model/constants.go` 声明：
+### ✅ 分类 ID 不一致（已修复）
+
+`model/constants.go` 原来声明 `CategoryShell=2, CategoryCharger=3`，与 DB 种子数据（5=保护套, 7=充电器）不符。
+
+**修复**：将常量更正为与 DB 一致的值：
 
 ```go
 CategoryPhone   = int64(1)   // 手机
-CategoryShell   = int64(2)   // 手机壳
-CategoryCharger = int64(3)   // 充电器
+CategoryShell   = int64(5)   // 保护套
+CategoryCharger = int64(7)   // 充电器
 ```
 
-但 product 服务中三个快捷列表的逻辑硬编码：
+### ✅ SetCategoryHotZero 缓存失效缺失（已修复）
 
-```go
-// getphonelistlogic.go
-FindTopHotByCategory(ctx, 1, 7)   // ✓ 与常量一致
+management 服务的 `setcategoryhotzerologic.go` 原来只重置 DB，不失效缓存，导致推荐数据在 TTL 内不刷新。
 
-// getprotectingshelllistlogic.go
-FindTopHotByCategory(ctx, 5, 7)   // ✗ 应为 2，实际 DB 中 5=手机壳
+**修复**：补充与 product 服务相同的 8 个 cache key 删除操作。
 
-// getchargerlistlogic.go
-FindTopHotByCategory(ctx, 7, 7)   // ✗ 应为 3，实际 DB 中 7=充电器
-```
+### ✅ UpdateProduct 零值问题（已修复）
 
-这些 ID 与 DB 种子数据（1=手机, 5=手机壳, 7=充电器）一致，但与 `constants.go` 的定义矛盾。常量文件需要更正或删除，以 DB 种子数据为准。
+原来用 `if req.X != 0` 判断是否更新字段，无法将数值字段清零。
 
-### SetCategoryHotZero 行为不一致
+**修复**：`UpdateProductReq` 中 `ProductPrice`、`ProductSellingPrice`、`ProductNum`、`ProductIsPromotion` 改为指针类型（`*float64` / `*int64`），logic 层改为 `if req.X != nil` 判断，传入 `null` 表示不更新，传入 `0` 表示置零。
 
-- **product 服务版本**：重置 DB + 失效 8 个缓存 key
-- **management 服务版本**：仅重置 DB，**不失效缓存**
+### ✅ GetCollect N+1（已修复）
 
-导致调用管理服务的 `setCategoryHotZero` 后，缓存中的 `category_hot` 值仍为旧数据，个性化推荐在缓存 TTL 内不会更新。
+原来对每条收藏记录单独查一次 `CategoryModel.FindOne` 获取分类名称。
 
-### UpdateProduct 零值问题
-
-`updateproductlogic.go` 使用 `if req.X != 0` 判断是否更新字段，因此无法将 `product_price`、`product_num`、`product_isPromotion` 修改为 `0`。
-
-### GetCollect 存在 N+1
-
-`getcollectlogic.go` 对每条收藏记录单独查一次 `CategoryModel.FindOne`，获取分类名称，未做批量优化。
+**修复**：新增 `CategoryModel.FindByIds(ctx, []int64)` 批量方法，`GetCollect` 先收集所有唯一 `category_id`，一次 `IN` 查询取回所有分类，再构建 `map[id]name` 映射组装响应。查询次数从 1+N 降为 2。

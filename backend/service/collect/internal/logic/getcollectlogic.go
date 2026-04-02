@@ -47,13 +47,31 @@ func (l *GetCollectLogic) GetCollect(req *types.GetCollectReq) (resp *types.GetC
 		return nil, err
 	}
 
+	// Collect unique category IDs for batch fetch
+	catIDSet := make(map[int64]struct{}, len(rows))
+	for _, row := range rows {
+		catIDSet[row.Category] = struct{}{}
+	}
+	catIDs := make([]int64, 0, len(catIDSet))
+	for id := range catIDSet {
+		catIDs = append(catIDs, id)
+	}
+	cats, err := l.svcCtx.CategoryModel.FindByIds(l.ctx, catIDs)
+	if err != nil {
+		return nil, err
+	}
+	catNameMap := make(map[int64]string, len(cats))
+	for _, c := range cats {
+		catNameMap[c.CategoryId] = c.CategoryName
+	}
+
 	collects = make([]types.CollectItem, 0, len(rows))
 	for _, row := range rows {
 		collects = append(collects, types.CollectItem{
 			ID:          row.Id,
 			UserID:      row.UserId,
 			ProductID:   row.ProductId,
-			Category:    fmt.Sprintf("%d", row.Category),
+			Category:    catNameMap[row.Category],
 			CollectTime: time.Unix(row.CollectTime, 0).Format("2006-01-02 15:04:05"),
 		})
 	}

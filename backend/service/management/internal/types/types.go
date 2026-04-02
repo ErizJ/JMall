@@ -130,15 +130,15 @@ type MgmtUserItem struct {
 }
 
 type UpdateProductReq struct {
-	ProductID           int64   `json:"product_id"`
-	ProductName         string  `json:"product_name,omitempty"`
-	ProductTitle        string  `json:"product_title,omitempty"`
-	ProductIntro        string  `json:"product_intro,omitempty"`
-	ProductPicture      string  `json:"product_picture,omitempty"`
-	ProductPrice        float64 `json:"product_price,omitempty"`
-	ProductSellingPrice float64 `json:"product_selling_price,omitempty"`
-	ProductNum          int64   `json:"product_num,omitempty"`
-	ProductIsPromotion  int64   `json:"product_isPromotion,omitempty"`
+	ProductID           int64    `json:"product_id"`
+	ProductName         string   `json:"product_name,omitempty"`
+	ProductTitle        string   `json:"product_title,omitempty"`
+	ProductIntro        string   `json:"product_intro,omitempty"`
+	ProductPicture      string   `json:"product_picture,omitempty"`
+	ProductPrice        *float64 `json:"product_price,omitempty"`
+	ProductSellingPrice *float64 `json:"product_selling_price,omitempty"`
+	ProductNum          *int64   `json:"product_num,omitempty"`
+	ProductIsPromotion  *int64   `json:"product_isPromotion,omitempty"`
 }
 
 type UpdateProductResp struct {
