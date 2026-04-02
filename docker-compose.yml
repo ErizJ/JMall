@@ -1,0 +1,175 @@
+version: "3.9"
+
+services:
+  # ─── 基础设施 ───────────────────────────────────────────────
+
+  mysql:
+    image: mysql:8.0
+    container_name: jmall-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: storedb
+      MYSQL_CHARSET: utf8mb4
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/model/sql/storeDB.sql:/docker-entrypoint-initdb.d/storeDB.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: jmall-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── 后端服务 ───────────────────────────────────────────────
+
+  user:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: user
+    container_name: jmall-user
+    restart: unless-stopped
+    ports:
+      - "8881:8881"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  product:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: product
+    container_name: jmall-product
+    restart: unless-stopped
+    ports:
+      - "8882:8882"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  cart:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: cart
+    container_name: jmall-cart
+    restart: unless-stopped
+    ports:
+      - "8883:8883"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  order:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: order
+    container_name: jmall-order
+    restart: unless-stopped
+    ports:
+      - "8884:8884"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  collect:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: collect
+    container_name: jmall-collect
+    restart: unless-stopped
+    ports:
+      - "8885:8885"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  management:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: management
+    container_name: jmall-management
+    restart: unless-stopped
+    ports:
+      - "8886:8886"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── 前端 ──────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jmall-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - user
+      - product
+      - cart
+      - order
+      - collect
+      - management
+
+volumes:
+  mysql_data:
+  redis_data:
