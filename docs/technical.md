@@ -18,7 +18,6 @@
 10. [管理服务（management，端口 8886）](#10-管理服务)
 11. [热度系统](#11-热度系统)
 12. [数据库表结构](#12-数据库表结构)
-13. [已知问题与注意事项](#13-已知问题与注意事项)
 
 ---
 
@@ -1019,38 +1018,3 @@ AddCollect（首次）   → CategoryHot+1, ProductHot+1
 | `amount_threshold` | INT NULL | 满 N 件触发 |
 | `price_reduction_range` | INT NULL | 减 M 元 |
 
----
-
-## 13. ~~已知问题~~（已修复）
-
-以下问题均已修复，此章节保留作为变更记录。
-
-### ✅ 分类 ID 不一致（已修复）
-
-`model/constants.go` 原来声明 `CategoryShell=2, CategoryCharger=3`，与 DB 种子数据（5=保护套, 7=充电器）不符。
-
-**修复**：将常量更正为与 DB 一致的值：
-
-```go
-CategoryPhone   = int64(1)   // 手机
-CategoryShell   = int64(5)   // 保护套
-CategoryCharger = int64(7)   // 充电器
-```
-
-### ✅ SetCategoryHotZero 缓存失效缺失（已修复）
-
-management 服务的 `setcategoryhotzerologic.go` 原来只重置 DB，不失效缓存，导致推荐数据在 TTL 内不刷新。
-
-**修复**：补充与 product 服务相同的 8 个 cache key 删除操作。
-
-### ✅ UpdateProduct 零值问题（已修复）
-
-原来用 `if req.X != 0` 判断是否更新字段，无法将数值字段清零。
-
-**修复**：`UpdateProductReq` 中 `ProductPrice`、`ProductSellingPrice`、`ProductNum`、`ProductIsPromotion` 改为指针类型（`*float64` / `*int64`），logic 层改为 `if req.X != nil` 判断，传入 `null` 表示不更新，传入 `0` 表示置零。
-
-### ✅ GetCollect N+1（已修复）
-
-原来对每条收藏记录单独查一次 `CategoryModel.FindOne` 获取分类名称。
-
-**修复**：新增 `CategoryModel.FindByIds(ctx, []int64)` 批量方法，`GetCollect` 先收集所有唯一 `category_id`，一次 `IN` 查询取回所有分类，再构建 `map[id]name` 映射组装响应。查询次数从 1+N 降为 2。
