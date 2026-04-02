@@ -1,0 +1,53 @@
+syntax = "v1"
+
+info (
+	title:  "JMall Collect Service"
+	author: "ErizJ"
+)
+
+type (
+	CollectItem {
+		ID          int64  `json:"id"`
+		UserID      int64  `json:"user_id"`
+		ProductID   int64  `json:"product_id"`
+		Category    string `json:"category"`
+		CollectTime string `json:"collect_time"`
+	}
+	GetCollectReq {
+		UserID int64 `json:"user_id"`
+	}
+	GetCollectResp {
+		Code     string        `json:"code"`
+		Collects []CollectItem `json:"collects,omitempty"`
+	}
+	AddCollectReq {
+		UserID    int64  `json:"user_id"`
+		ProductID int64  `json:"product_id"`
+		Category  string `json:"category"`
+	}
+	AddCollectResp {
+		Code string `json:"code"`
+	}
+	DeleteCollectReq {
+		UserID    int64 `json:"user_id"`
+		ProductID int64 `json:"product_id"`
+	}
+	DeleteCollectResp {
+		Code string `json:"code"`
+	}
+)
+
+@server (
+	middleware: AuthMiddleware
+)
+service collect-api {
+	@handler GetCollectHandler
+	post /user/collect/getCollect (GetCollectReq) returns (GetCollectResp)
+
+	@handler AddCollectHandler
+	post /user/collect/addCollect (AddCollectReq) returns (AddCollectResp)
+
+	@handler DeleteCollectHandler
+	post /user/collect/deleteCollect (DeleteCollectReq) returns (DeleteCollectResp)
+}
+

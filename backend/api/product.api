@@ -1,0 +1,135 @@
+syntax = "v1"
+
+info (
+	title:  "JMall Product Service"
+	author: "ErizJ"
+)
+
+type (
+	ProductItem {
+		ProductID           int64   `json:"product_id"`
+		ProductName         string  `json:"product_name"`
+		CategoryID          int64   `json:"category_id"`
+		ProductTitle        string  `json:"product_title"`
+		ProductIntro        string  `json:"product_intro"`
+		ProductPicture      string  `json:"product_picture"`
+		ProductPrice        float64 `json:"product_price"`
+		ProductSellingPrice float64 `json:"product_selling_price"`
+		ProductNum          int64   `json:"product_num"`
+		ProductSales        int64   `json:"product_sales"`
+		ProductIsPromotion  int     `json:"product_isPromotion"`
+		ProductHot          int64   `json:"product_hot"`
+	}
+	CategoryItem {
+		CategoryID   int64  `json:"category_id"`
+		CategoryName string `json:"category_name"`
+		CategoryHot  int64  `json:"category_hot"`
+	}
+	GetAllProductResp {
+		Code     string        `json:"code"`
+		Products []ProductItem `json:"products,omitempty"`
+	}
+	GetProductByCategoryReq {
+		CategoryID int64 `json:"category_id"`
+	}
+	GetProductByCategoryResp {
+		Code     string        `json:"code"`
+		Products []ProductItem `json:"products,omitempty"`
+	}
+	SearchProductReq {
+		Keyword string `json:"keyword"`
+	}
+	SearchProductResp {
+		Code     string        `json:"code"`
+		Products []ProductItem `json:"products,omitempty"`
+	}
+	GetProductDetailReq {
+		ProductID int64 `json:"product_id"`
+	}
+	GetProductDetailResp {
+		Code    string      `json:"code"`
+		Product ProductItem `json:"product,omitempty"`
+	}
+	GetCategoryResp {
+		Code       string         `json:"code"`
+		Categories []CategoryItem `json:"categories,omitempty"`
+	}
+	GetPromoProductReq {
+		CategoryName string `json:"category_name"`
+	}
+	GetPromoProductResp {
+		Code     string        `json:"code"`
+		Products []ProductItem `json:"products,omitempty"`
+	}
+	GetRecommendProductReq {
+		UserID int64 `json:"user_id"`
+	}
+	GetRecommendProductResp {
+		Code     string        `json:"code"`
+		Products []ProductItem `json:"products,omitempty"`
+	}
+	SetCategoryHotZeroResp {
+		Code string `json:"code"`
+	}
+	ProductPicture {
+		ID             int64  `json:"id"`
+		ProductID      int64  `json:"product_id"`
+		ProductPicture string `json:"product_picture"`
+		Intro          string `json:"intro"`
+	}
+	GetProductPicturesReq {
+		ProductID int64 `json:"product_id"`
+	}
+	GetProductPicturesResp {
+		Code     string           `json:"code"`
+		Pictures []ProductPicture `json:"pictures,omitempty"`
+	}
+)
+
+service product-api {
+	@handler GetAllProductHandler
+	post /product/getAllProduct returns (GetAllProductResp)
+
+	@handler GetProductByCategoryHandler
+	post /product/getProductByCategory (GetProductByCategoryReq) returns (GetProductByCategoryResp)
+
+	@handler GetProductBySearchHandler
+	post /product/getProductBySearch (SearchProductReq) returns (SearchProductResp)
+
+	@handler GetProductDetailHandler
+	post /product/getDetails (GetProductDetailReq) returns (GetProductDetailResp)
+
+	@handler GetProductPicturesHandler
+	post /product/getDetailsPicture (GetProductPicturesReq) returns (GetProductPicturesResp)
+
+	@handler GetCategoryHandler
+	post /product/getCategory returns (GetCategoryResp)
+
+	@handler GetPromoProductHandler
+	post /product/getPromoProduct (GetPromoProductReq) returns (GetPromoProductResp)
+
+	@handler GetPromotionProductHandler
+	post /product/getPromotionProduct returns (GetAllProductResp)
+
+	@handler GetHotProductHandler
+	post /product/getHotProduct returns (GetAllProductResp)
+
+	@handler GetRecommendProductHandler
+	post /product/getOneUserRecommendProduct (GetRecommendProductReq) returns (GetRecommendProductResp)
+
+	@handler GetAllUserRecommendHandler
+	post /product/getAllUserRecommendProduct returns (GetAllProductResp)
+
+	@handler GetPhoneListHandler
+	post /product/getPhoneList returns (GetAllProductResp)
+
+	@handler GetProtectingShellListHandler
+	post /product/getProtectingShellList returns (GetAllProductResp)
+
+	@handler GetChargerListHandler
+	post /product/getChargerList returns (GetAllProductResp)
+
+	@handler SetCategoryHotZeroHandler
+	post /product/setCategoryHotZero returns (SetCategoryHotZeroResp)
+}
+

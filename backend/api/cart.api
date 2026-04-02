@@ -1,0 +1,78 @@
+syntax = "v1"
+
+info (
+	title:  "JMall Shopping Cart Service"
+	author: "ErizJ"
+)
+
+type (
+	CartItem {
+		ID          int64   `json:"id"`
+		UserID      int64   `json:"user_id"`
+		ProductID   int64   `json:"product_id"`
+		ProductName string  `json:"productName"`
+		ProductImg  string  `json:"productImg"`
+		Price       float64 `json:"price"`
+		Num         int64   `json:"num"`
+		MaxNum      int64   `json:"maxNum"`
+	}
+	GetCartReq {
+		UserID int64 `json:"user_id"`
+	}
+	GetCartResp {
+		Code  string     `json:"code"`
+		Items []CartItem `json:"items,omitempty"`
+	}
+	AddCartReq {
+		UserID    int64 `json:"user_id"`
+		ProductID int64 `json:"product_id"`
+		Num       int64 `json:"num"`
+	}
+	AddCartResp {
+		Code string `json:"code"`
+	}
+	UpdateCartReq {
+		UserID    int64 `json:"user_id"`
+		ProductID int64 `json:"product_id"`
+		Num       int64 `json:"num"`
+	}
+	UpdateCartResp {
+		Code string `json:"code"`
+	}
+	DeleteCartReq {
+		UserID    int64 `json:"user_id"`
+		ProductID int64 `json:"product_id"`
+	}
+	DeleteCartResp {
+		Code string `json:"code"`
+	}
+	IsExistCartReq {
+		UserID    int64 `json:"user_id"`
+		ProductID int64 `json:"product_id"`
+	}
+	IsExistCartResp {
+		Code    string `json:"code"`
+		IsExist bool   `json:"isExist"`
+	}
+)
+
+@server (
+	middleware: AuthMiddleware
+)
+service cart-api {
+	@handler GetCartHandler
+	post /user/shoppingCart/getShoppingCart (GetCartReq) returns (GetCartResp)
+
+	@handler AddCartHandler
+	post /user/shoppingCart/addShoppingCart (AddCartReq) returns (AddCartResp)
+
+	@handler UpdateCartHandler
+	post /user/shoppingCart/updateShoppingCart (UpdateCartReq) returns (UpdateCartResp)
+
+	@handler DeleteCartHandler
+	post /user/shoppingCart/deleteShoppingCart (DeleteCartReq) returns (DeleteCartResp)
+
+	@handler IsExistCartHandler
+	post /user/shoppingCart/isExistShoppingCart (IsExistCartReq) returns (IsExistCartResp)
+}
+

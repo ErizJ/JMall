@@ -1,0 +1,99 @@
+syntax = "v1"
+
+info (
+	title:  "JMall User Service"
+	author: "ErizJ"
+)
+
+type (
+	LoginReq {
+		UserName string `json:"userName"`
+		Password string `json:"password"`
+	}
+	LoginResp {
+		Code     string `json:"code"`
+		UserID   int64  `json:"userId,omitempty"`
+		UserName string `json:"userName,omitempty"`
+		Token    string `json:"token,omitempty"`
+	}
+	RegisterReq {
+		UserName    string `json:"userName"`
+		Password    string `json:"password"`
+		PhoneNumber string `json:"userPhoneNumber,omitempty"`
+	}
+	RegisterResp {
+		Code    string `json:"code"`
+		Message string `json:"message,omitempty"`
+	}
+	CheckUserNameReq {
+		UserName string `json:"userName"`
+	}
+	CheckUserNameResp {
+		Code string `json:"code"`
+	}
+	IsManagerReq {
+		UserID int64 `json:"user_id"`
+	}
+	IsManagerResp {
+		Code      string `json:"code"`
+		IsManager bool   `json:"isManager"`
+	}
+	GetUserDetailReq {
+		UserID int64 `json:"user_id"`
+	}
+	GetUserDetailResp {
+		Code        string `json:"code"`
+		UserID      int64  `json:"userId,omitempty"`
+		UserName    string `json:"userName,omitempty"`
+		PhoneNumber string `json:"userPhoneNumber,omitempty"`
+	}
+	UpdateUserReq {
+		UserID      int64  `json:"user_id"`
+		UserName    string `json:"userName,omitempty"`
+		PhoneNumber string `json:"userPhoneNumber,omitempty"`
+	}
+	UpdateUserResp {
+		Code string `json:"code"`
+	}
+	DeleteUserReq {
+		UserID int64 `json:"user_id"`
+	}
+	DeleteUserResp {
+		Code string `json:"code"`
+	}
+	LogoutResp {
+		Code string `json:"code"`
+	}
+)
+
+service user-api {
+	@handler LoginHandler
+	post /users/login (LoginReq) returns (LoginResp)
+
+	@handler RegisterHandler
+	post /users/register (RegisterReq) returns (RegisterResp)
+
+	@handler FindUserNameHandler
+	post /users/findUserName (CheckUserNameReq) returns (CheckUserNameResp)
+
+	@handler IsManagerHandler
+	post /users/isManager (IsManagerReq) returns (IsManagerResp)
+
+	@handler LogoutHandler
+	post /users/logout returns (LogoutResp)
+}
+
+@server (
+	middleware: AuthMiddleware
+)
+service user-api {
+	@handler GetUserDetailHandler
+	post /users/getDetails (GetUserDetailReq) returns (GetUserDetailResp)
+
+	@handler UpdateUserHandler
+	post /users/updateUser (UpdateUserReq) returns (UpdateUserResp)
+
+	@handler DeleteUserHandler
+	post /users/deleteUserById (DeleteUserReq) returns (DeleteUserResp)
+}
+

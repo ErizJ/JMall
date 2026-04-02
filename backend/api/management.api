@@ -1,0 +1,183 @@
+syntax = "v1"
+
+info (
+	title:  "JMall Management Service"
+	author: "ErizJ"
+)
+
+type (
+	// -------- Product --------
+	MgmtProductItem {
+		ProductID           int64   `json:"product_id"`
+		ProductName         string  `json:"product_name"`
+		CategoryID          int64   `json:"category_id"`
+		ProductTitle        string  `json:"product_title"`
+		ProductPicture      string  `json:"product_picture"`
+		ProductPrice        float64 `json:"product_price"`
+		ProductSellingPrice float64 `json:"product_selling_price"`
+		ProductNum          int64   `json:"product_num"`
+		ProductSales        int64   `json:"product_sales"`
+		ProductIsPromotion  int64   `json:"product_isPromotion"`
+	}
+	AddProductReq {
+		ProductName         string  `json:"product_name"`
+		CategoryID          int64   `json:"category_id"`
+		ProductTitle        string  `json:"product_title"`
+		ProductIntro        string  `json:"product_intro"`
+		ProductPicture      string  `json:"product_picture"`
+		ProductPrice        float64 `json:"product_price"`
+		ProductSellingPrice float64 `json:"product_selling_price"`
+		ProductNum          int64   `json:"product_num"`
+		ProductIsPromotion  int64   `json:"product_isPromotion"`
+	}
+	AddProductResp {
+		Code string `json:"code"`
+	}
+	DeleteProductReq {
+		ProductID int64 `json:"product_id"`
+	}
+	DeleteProductResp {
+		Code string `json:"code"`
+	}
+	UpdateProductReq {
+		ProductID           int64   `json:"product_id"`
+		ProductName         string  `json:"product_name,omitempty"`
+		ProductTitle        string  `json:"product_title,omitempty"`
+		ProductIntro        string  `json:"product_intro,omitempty"`
+		ProductPicture      string  `json:"product_picture,omitempty"`
+		ProductPrice        float64 `json:"product_price,omitempty"`
+		ProductSellingPrice float64 `json:"product_selling_price,omitempty"`
+		ProductNum          int64   `json:"product_num,omitempty"`
+		ProductIsPromotion  int64   `json:"product_isPromotion,omitempty"`
+	}
+	UpdateProductResp {
+		Code string `json:"code"`
+	}
+	GetProductsByCategoryNameReq {
+		CategoryName string `json:"category_name"`
+	}
+	GetProductsByCategoryNameResp {
+		Code     string            `json:"code"`
+		Products []MgmtProductItem `json:"products,omitempty"`
+	}
+	// -------- Discounts / Combinations --------
+	CombinationItem {
+		ID                  int64   `json:"id"`
+		MainProductID       int64   `json:"main_product_id"`
+		ViceProductID       int64   `json:"vice_product_id"`
+		AmountThreshold     float64 `json:"amountThreshold"`
+		PriceReductionRange float64 `json:"priceReductionRange"`
+	}
+	GetAllDiscountsResp {
+		Code         string            `json:"code"`
+		Combinations []CombinationItem `json:"combinations,omitempty"`
+	}
+	AddCombinationReq {
+		MainProductID       int64   `json:"main_product_id"`
+		ViceProductID       int64   `json:"vice_product_id"`
+		AmountThreshold     float64 `json:"amountThreshold"`
+		PriceReductionRange float64 `json:"priceReductionRange"`
+	}
+	AddCombinationResp {
+		Code string `json:"code"`
+	}
+	DeleteCombinationReq {
+		ID int64 `json:"id"`
+	}
+	DeleteCombinationResp {
+		Code string `json:"code"`
+	}
+	// -------- Orders (admin) --------
+	MgmtOrderItem {
+		ID           int64   `json:"id"`
+		OrderID      int64   `json:"order_id"`
+		UserID       int64   `json:"user_id"`
+		UserName     string  `json:"userName"`
+		ProductID    int64   `json:"product_id"`
+		ProductName  string  `json:"productName"`
+		ProductNum   int64   `json:"product_num"`
+		ProductPrice float64 `json:"product_price"`
+		OrderTime    string  `json:"order_time"`
+	}
+	GetOrdersByUserNameReq {
+		UserName string `json:"userName"`
+	}
+	GetOrdersByUserNameResp {
+		Code   string          `json:"code"`
+		Orders []MgmtOrderItem `json:"orders,omitempty"`
+	}
+	GetAllOrdersResp {
+		Code   string          `json:"code"`
+		Orders []MgmtOrderItem `json:"orders,omitempty"`
+	}
+	// -------- Users (admin) --------
+	MgmtUserItem {
+		UserID      int64  `json:"user_id"`
+		UserName    string `json:"userName"`
+		PhoneNumber string `json:"userPhoneNumber"`
+	}
+	GetAllUsersResp {
+		Code  string         `json:"code"`
+		Users []MgmtUserItem `json:"users,omitempty"`
+	}
+	// -------- Carousel --------
+	CarouselItem {
+		CarouselID int64  `json:"carousel_id"`
+		ImgPath    string `json:"imgPath"`
+		Describes  string `json:"describes"`
+	}
+	GetCarouselResp {
+		Code     string         `json:"code"`
+		Carousel []CarouselItem `json:"carousel,omitempty"`
+	}
+	// -------- Category --------
+	SetCategoryHotZeroResp {
+		Code string `json:"code"`
+	}
+)
+
+// Public routes (no auth)
+service management-api {
+	@handler GetCarouselHandler
+	post /resources/carousel returns (GetCarouselResp)
+}
+
+// Admin-only routes (require auth)
+@server (
+	middleware: AuthMiddleware
+)
+service management-api {
+	@handler AddProductHandler
+	post /management/addProduct (AddProductReq) returns (AddProductResp)
+
+	@handler DeleteProductHandler
+	post /product/deleteProductById (DeleteProductReq) returns (DeleteProductResp)
+
+	@handler UpdateProductHandler
+	post /product/updateProduct (UpdateProductReq) returns (UpdateProductResp)
+
+	@handler GetProductsByCategoryNameHandler
+	post /management/getProductsByCategoryName (GetProductsByCategoryNameReq) returns (GetProductsByCategoryNameResp)
+
+	@handler GetAllDiscountsHandler
+	post /management/getAllDiscounts returns (GetAllDiscountsResp)
+
+	@handler AddCombinationHandler
+	post /management/addProductCombination (AddCombinationReq) returns (AddCombinationResp)
+
+	@handler DeleteCombinationHandler
+	post /management/deleteProductCombinationById (DeleteCombinationReq) returns (DeleteCombinationResp)
+
+	@handler GetAllOrdersHandler
+	post /management/getAllOrders returns (GetAllOrdersResp)
+
+	@handler GetOrdersByUserNameHandler
+	post /management/getOrdersByUserName (GetOrdersByUserNameReq) returns (GetOrdersByUserNameResp)
+
+	@handler GetAllUsersHandler
+	post /management/getAllUsers returns (GetAllUsersResp)
+
+	@handler SetCategoryHotZeroHandler
+	post /management/setCategoryHotZero returns (SetCategoryHotZeroResp)
+}
+
