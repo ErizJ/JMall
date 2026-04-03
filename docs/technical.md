@@ -628,7 +628,7 @@ Cache miss → ProductModel.FindTopHotByCategory(categoryId, limit=7)
 1. ctxutil.UserIDFromCtx → userId
 
 2. Cache key: jmall:orders:user:{userId} (TTL 2 min)
-   hit  → 返回缓存
+   hit  → 返回缓存的 []OrderGroup
    miss → 继续
 
 3. OrdersModel.FindByUserId(userId)
@@ -638,15 +638,21 @@ Cache miss → ProductModel.FindTopHotByCategory(categoryId, limit=7)
    ProductModel.FindByIds(allProductIds)
    → 构建 productMap
 
-5. 组装响应
-   for each order row:
-     OrderItem{ id, orderId, userId, productId, productName,
-                productImg, productNum, productPrice,
-                orderTime("2006-01-02 15:04:05"), status }
+5. 按 order_id 分组（保持插入顺序）
+   for each row:
+     找到或创建 OrderGroup{ orderId, userId, status, orderTime }
+     追加 OrderItem 到 group.Items
+     累加 group.ItemCount += productNum
+     累加 group.TotalAmount += productPrice * productNum
 
 6. 写入缓存（TTL 2 min）
-7. 返回 []OrderItem
+7. 返回 []OrderGroup
 ```
+
+> **响应格式**：返回的是按 `order_id` 分组后的订单列表，每个 `OrderGroup` 包含：
+> - 订单头信息：`order_id`、`user_id`、`status`、`order_time`
+> - 计算字段：`item_count`（总件数）、`total_amount`（总金额）
+> - 商品行数组：`items[]`，每项包含 `product_id`、`product_name`、`product_img`、`product_num`、`product_price`
 
 ### 8.3 订单详情 `POST /order/getDetails` 🔒
 
@@ -654,9 +660,10 @@ Cache miss → ProductModel.FindTopHotByCategory(categoryId, limit=7)
 输入: { orderId }
 
 1. OrdersModel.FindByOrderId(orderId)
+   - 无记录 → code "002"
 2. 收集 productId → ProductModel.FindByIds(productIds)
-3. 组装 []OrderItem（含 status 字段）
-4. 返回订单详情列表
+3. 组装单个 OrderGroup（含 items、item_count、total_amount）
+4. 返回 { code: "200", order: OrderGroup }
 ```
 
 ### 8.4 删除订单 `POST /order/deleteOrderById` 🔒
@@ -797,7 +804,7 @@ miss → CarouselModel.FindAll()
 OrdersModel.FindAllWithDetails()
 SQL:
   SELECT o.id, o.order_id, o.user_id, o.product_id,
-         o.product_num, o.product_price, o.order_time,
+         o.product_num, o.product_price, o.order_time, o.status,
          u.user_name,
          p.product_name,
          COALESCE(p.product_picture, '') AS product_picture
@@ -806,8 +813,11 @@ SQL:
   JOIN product p ON o.product_id = p.product_id
   ORDER BY o.order_time DESC
 
-→ 返回 []MgmtOrderItem（含用户名、商品名，单次 JOIN 查询，无 N+1）
+→ 返回 []MgmtOrderItem（含用户名、商品名、商品图片、订单状态，单次 JOIN 查询，无 N+1）
 ```
+
+> **前端分组**：管理端返回的仍然是扁平的订单行列表（因为管理员需要看到每一行的详细信息），
+> 前端 `OrdersManage.vue` 在 `computed` 中按 `order_id` 分组为订单卡片展示。
 
 ### 10.3 按用户名查订单 `POST /management/getOrdersByUserName` 🔒
 
@@ -820,8 +830,9 @@ SQL:
 2. OrdersModel.FindByUserId(userId)
 
 3. 收集所有 productId → ProductModel.FindByIds(productIds)
+   → 构建 productMap（含商品名和商品图片）
 
-4. 组装 []MgmtOrderItem
+4. 组装 []MgmtOrderItem（含 user_name、product_name、product_picture、status）
 ```
 
 ### 10.4 获取全部用户 `POST /management/getAllUsers` 🔒
