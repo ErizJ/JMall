@@ -22,4 +22,9 @@ if [ -n "$DOUBAO_API_KEY" ]; then
   sed -i "s|ApiKey:.*|ApiKey: ${DOUBAO_API_KEY}|" "$CONFIG"
 fi
 
+# Seckill service specific: inject Kafka broker address
+if [ -n "$KAFKA_BROKERS" ]; then
+  sed -i "s|- localhost:9092|- ${KAFKA_BROKERS}|" "$CONFIG"
+fi
+
 exec /app/service -f "$CONFIG"

@@ -1,0 +1,74 @@
+syntax = "v1"
+
+info (
+	title:  "JMall Seckill Service"
+	author: "ErizJ"
+)
+
+type (
+	// 秒杀抢购
+	SeckillReq {
+		ActivityID int64 `json:"activity_id"`
+	}
+	SeckillResp {
+		Code  string `json:"code"`
+		Token string `json:"token,omitempty"`
+		Msg   string `json:"msg,omitempty"`
+	}
+
+	// 查询秒杀结果（前端轮询）
+	SeckillResultReq {
+		Token string `json:"token"`
+	}
+	SeckillResultResp {
+		Code    string `json:"code"`
+		Status  int    `json:"status"`             // 0=排队中 1=成功 2=失败
+		OrderID int64  `json:"order_id,omitempty"`
+		Msg     string `json:"msg,omitempty"`
+	}
+
+	// 秒杀活动详情
+	GetSeckillActivityReq {
+		ActivityID int64 `json:"activity_id"`
+	}
+	SeckillActivityResp {
+		Code          string `json:"code"`
+		ActivityID    int64  `json:"activity_id"`
+		Title         string `json:"title"`
+		ProductID     int64  `json:"product_id"`
+		SeckillPrice  int64  `json:"seckill_price"`
+		OriginalPrice int64  `json:"original_price"`
+		Stock         int64  `json:"stock"`
+		LimitPerUser  int64  `json:"limit_per_user"`
+		StartTime     int64  `json:"start_time"`
+		EndTime       int64  `json:"end_time"`
+		Status        int    `json:"status"`
+	}
+
+	// 秒杀活动列表
+	ListSeckillActivitiesResp {
+		Code       string                 `json:"code"`
+		Activities []SeckillActivityResp  `json:"activities,omitempty"`
+	}
+)
+
+// 需要鉴权的接口
+@server (
+	middleware: AuthMiddleware
+)
+service seckill-api {
+	@handler SeckillHandler
+	post /seckill/buy (SeckillReq) returns (SeckillResp)
+
+	@handler SeckillResultHandler
+	post /seckill/result (SeckillResultReq) returns (SeckillResultResp)
+}
+
+// 不需要鉴权的接口
+service seckill-api {
+	@handler GetSeckillActivityHandler
+	post /seckill/activity (GetSeckillActivityReq) returns (SeckillActivityResp)
+
+	@handler ListSeckillActivitiesHandler
+	get /seckill/activities returns (ListSeckillActivitiesResp)
+}

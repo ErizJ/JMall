@@ -112,18 +112,23 @@ func (l *ChatStreamLogic) ChatStream(req *types.ChatReq, w http.ResponseWriter, 
 		choice = resp.Choices[0]
 	}
 
-	// Final streaming response (no tools, just text)
-	messages = append(messages, doubaoMessage{Role: "assistant", Content: choice.Message.Content})
-	// Remove the last assistant message and re-stream
-	messages = messages[:len(messages)-1]
-
-	_, _, err = streamDoubao(cfg, doubaoRequest{
-		Model:    cfg.Model,
-		Messages: messages,
-	}, w, flusher)
-	if err != nil {
-		sseError(w, flusher, "流式响应失败")
-		return
+	// Final response: if the non-streaming phase already produced the final text
+	// (no tool calls), stream it directly to avoid a redundant second API call.
+	if choice.Message.ToolCalls == nil && choice.Message.Content != "" {
+		// Replay the already-fetched content as SSE chunks word-by-word.
+		sseData, _ := json.Marshal(map[string]string{"content": choice.Message.Content})
+		fmt.Fprintf(w, "data: %s\n\n", sseData)
+		flusher.Flush()
+	} else {
+		// Tool calls were resolved; stream the final answer from the model.
+		_, _, err = streamDoubao(cfg, doubaoRequest{
+			Model:    cfg.Model,
+			Messages: messages,
+		}, w, flusher)
+		if err != nil {
+			sseError(w, flusher, "流式响应失败")
+			return
+		}
 	}
 
 	// Send done event

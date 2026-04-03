@@ -42,6 +42,7 @@ type RefundRequest struct {
 // RefundResponse 统一退款响应
 type RefundResponse struct {
 	ChannelRefundNo string // 渠道退款单号
+	Sync            bool   // true=同步退款完成（Mock），false=异步退款（真实渠道，需等回调）
 }
 
 // PayChannel 支付渠道接口

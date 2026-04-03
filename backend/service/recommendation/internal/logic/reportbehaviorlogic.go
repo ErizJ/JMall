@@ -31,7 +31,10 @@ func (l *ReportBehaviorLogic) ReportBehavior(req *types.ReportBehaviorReq) (*typ
 		return nil, ctxErr
 	}
 
-	// 校验行为类型
+	// 校验参数
+	if req.ProductID <= 0 || req.CategoryID <= 0 {
+		return &types.ReportBehaviorResp{Code: "002"}, nil
+	}
 	if req.BehaviorType < model.BehaviorView || req.BehaviorType > model.BehaviorCollect {
 		return &types.ReportBehaviorResp{Code: "002"}, nil
 	}

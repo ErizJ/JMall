@@ -56,12 +56,14 @@ func (l *MockPayLogic) MockPay(req *types.MockPayReq) (resp *types.MockPayResp, 
 
 	// 4. 检查过期
 	if payment.ExpireTime > 0 && time.Now().Unix() > payment.ExpireTime {
-		_ = l.svcCtx.PaymentOrderModel.UpdateStatus(l.ctx, req.PaymentNo, model.PaymentStatusClosed, time.Now().Unix())
-
-		// 过期关闭时回滚库存并取消订单
+		// 事务内原子更新：支付单关闭 + 订单取消 + 库存回滚
 		orderItems, findOrderErr := l.svcCtx.OrdersModel.FindByOrderId(l.ctx, payment.OrderId)
 		if findOrderErr == nil && len(orderItems) > 0 && orderItems[0].Status == 0 {
-			_ = l.svcCtx.OrdersModel.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
+			_ = l.svcCtx.PaymentOrderModel.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
+				txPayment := l.svcCtx.PaymentOrderModel.WithSession(session)
+				if updateErr := txPayment.UpdateStatus(ctx, req.PaymentNo, model.PaymentStatusClosed, time.Now().Unix()); updateErr != nil {
+					return updateErr
+				}
 				txOrders := l.svcCtx.OrdersModel.WithSession(session)
 				if statusErr := txOrders.UpdateStatusByOrderId(ctx, payment.OrderId, 2); statusErr != nil {
 					return statusErr
@@ -77,6 +79,9 @@ func (l *MockPayLogic) MockPay(req *types.MockPayReq) (resp *types.MockPayResp, 
 			for _, oi := range orderItems {
 				_ = l.svcCtx.Cache.Del(l.ctx, fmt.Sprintf("jmall:stock:%d", oi.ProductId))
 			}
+		} else {
+			// 订单状态已不是待支付，只关闭支付单
+			_ = l.svcCtx.PaymentOrderModel.UpdateStatus(l.ctx, req.PaymentNo, model.PaymentStatusClosed, time.Now().Unix())
 		}
 
 		_ = l.svcCtx.Cache.Del(l.ctx, idempotentKey)

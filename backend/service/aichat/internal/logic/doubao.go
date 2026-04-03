@@ -8,9 +8,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ErizJ/JMall/backend/service/aichat/internal/config"
 )
+
+// doubaoHTTPClient is a shared HTTP client with a 60-second timeout.
+// http.DefaultClient has no timeout and can hang indefinitely.
+var doubaoHTTPClient = &http.Client{Timeout: 60 * time.Second}
 
 // doubaoMessage represents a chat message for the Doubao API.
 type doubaoMessage struct {
@@ -64,7 +69,7 @@ func callDoubao(cfg config.DoubaoConfig, req doubaoRequest) (*doubaoResponse, er
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.ApiKey)
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := doubaoHTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +100,7 @@ func streamDoubao(cfg config.DoubaoConfig, req doubaoRequest, w http.ResponseWri
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.ApiKey)
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := doubaoHTTPClient.Do(httpReq)
 	if err != nil {
 		return "", nil, err
 	}
@@ -108,8 +113,9 @@ func streamDoubao(cfg config.DoubaoConfig, req doubaoRequest, w http.ResponseWri
 
 	scanner := bufio.NewScanner(resp.Body)
 	var fullContent strings.Builder
-	var toolCalls []doubaoToolCall
-	// Track partial tool call arguments across chunks
+	// Use maps keyed by the API-provided index to avoid out-of-range panics
+	// when streaming chunks arrive in non-sequential order.
+	toolCallMap := make(map[int]*doubaoToolCall)
 	toolCallArgBuilders := make(map[int]*strings.Builder)
 
 	for scanner.Scan() {
@@ -151,18 +157,17 @@ func streamDoubao(cfg config.DoubaoConfig, req doubaoRequest, w http.ResponseWri
 				if err := json.Unmarshal(choice.Delta.ToolCalls, &deltaToolCalls); err == nil {
 					for _, dtc := range deltaToolCalls {
 						idx := dtc.Index
-						if _, exists := toolCallArgBuilders[idx]; !exists {
+						if _, exists := toolCallMap[idx]; !exists {
+							toolCallMap[idx] = &doubaoToolCall{ID: dtc.ID, Type: dtc.Type}
+							toolCallMap[idx].Function.Name = dtc.Function.Name
 							toolCallArgBuilders[idx] = &strings.Builder{}
-							tc := doubaoToolCall{ID: dtc.ID, Type: dtc.Type}
-							tc.Function.Name = dtc.Function.Name
-							toolCalls = append(toolCalls, tc)
 						}
 						toolCallArgBuilders[idx].WriteString(dtc.Function.Arguments)
-						if dtc.Function.Name != "" && toolCalls[idx].Function.Name == "" {
-							toolCalls[idx].Function.Name = dtc.Function.Name
+						if dtc.Function.Name != "" && toolCallMap[idx].Function.Name == "" {
+							toolCallMap[idx].Function.Name = dtc.Function.Name
 						}
-						if dtc.ID != "" && toolCalls[idx].ID == "" {
-							toolCalls[idx].ID = dtc.ID
+						if dtc.ID != "" && toolCallMap[idx].ID == "" {
+							toolCallMap[idx].ID = dtc.ID
 						}
 					}
 				}
@@ -170,10 +175,12 @@ func streamDoubao(cfg config.DoubaoConfig, req doubaoRequest, w http.ResponseWri
 		}
 	}
 
-	// Assemble final tool call arguments
-	for idx, builder := range toolCallArgBuilders {
-		if idx < len(toolCalls) {
-			toolCalls[idx].Function.Arguments = builder.String()
+	// Assemble final tool calls in index order
+	toolCalls := make([]doubaoToolCall, 0, len(toolCallMap))
+	for idx := 0; idx < len(toolCallMap); idx++ {
+		if tc, ok := toolCallMap[idx]; ok {
+			tc.Function.Arguments = toolCallArgBuilders[idx].String()
+			toolCalls = append(toolCalls, *tc)
 		}
 	}
 

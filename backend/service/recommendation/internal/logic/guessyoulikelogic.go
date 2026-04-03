@@ -78,7 +78,7 @@ func (l *GuessYouLikeLogic) GuessYouLike(req *types.GuessYouLikeReq) (*types.Gue
 	}
 
 	// ========== 1. 尝试读缓存 ==========
-	cacheKey := fmt.Sprintf("jmall:recommend:guess:%d:%d", userID, page)
+	cacheKey := fmt.Sprintf("jmall:recommend:guess:%d:%d:%d", userID, page, pageSize)
 	var cached types.GuessYouLikeResp
 	if err := l.svcCtx.Cache.Get(l.ctx, cacheKey, &cached); err == nil {
 		return &cached, nil
@@ -375,41 +375,42 @@ func (l *GuessYouLikeLogic) rank(candidates []candidate, preferredCatSet map[int
 
 // ==================== 重排层 ====================
 // 分类打散：同分类商品不连续超过2个，提升推荐多样性
-// 过滤已购买商品（浏览过的可以继续推荐）
+//
+// 实现：两阶段
+//   - 第一轮（scatter）：遍历候选列表，严格限制同分类连续数 ≤ 2，
+//     无法放入的商品跳过（defer）
+//   - 第二轮（fill）：将第一轮跳过的商品按原顺序追加到末尾
+//     两轮状态完全独立，避免跨轮状态污染
 
 func (l *GuessYouLikeLogic) rerank(ranked []rankedCandidate) []rankedCandidate {
 	if len(ranked) == 0 {
 		return nil
 	}
 
-	// 分类打散算法
 	result := make([]rankedCandidate, 0, len(ranked))
 	used := make(map[int64]bool, len(ranked))
-	consecutiveCat := int64(-1)
-	consecutiveCount := 0
 
-	for pass := 0; pass < 3 && len(result) < len(ranked); pass++ {
-		for _, r := range ranked {
-			if used[r.productId] {
-				continue
-			}
-			if pass == 0 {
-				// 第一轮：严格打散，同分类不连续超过2个
-				if r.categoryId == consecutiveCat && consecutiveCount >= 2 {
-					continue
-				}
-			}
-			// 后续轮次放宽限制，确保所有商品都能入选
+	// 第一轮：分类打散
+	var scatterCat int64 = -1
+	scatterCount := 0
+	for _, r := range ranked {
+		if r.categoryId == scatterCat && scatterCount >= 2 {
+			continue // 本轮跳过，留给第二轮补充
+		}
+		result = append(result, r)
+		used[r.productId] = true
+		if r.categoryId == scatterCat {
+			scatterCount++
+		} else {
+			scatterCat = r.categoryId
+			scatterCount = 1
+		}
+	}
 
+	// 第二轮：追加第一轮未入选的商品（状态独立，不受第一轮影响）
+	for _, r := range ranked {
+		if !used[r.productId] {
 			result = append(result, r)
-			used[r.productId] = true
-
-			if r.categoryId == consecutiveCat {
-				consecutiveCount++
-			} else {
-				consecutiveCat = r.categoryId
-				consecutiveCount = 1
-			}
 		}
 	}
 

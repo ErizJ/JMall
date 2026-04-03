@@ -10,6 +10,7 @@
 | 后端 | Go 1.23 · go-zero 1.10（REST） |
 | 数据库 | MySQL 8.0 |
 | 缓存 | Redis 7 |
+| 消息队列 | Apache Kafka（秒杀异步下单、削峰填谷） |
 
 ---
 
@@ -19,6 +20,7 @@
 |------|------|------|
 | MySQL | 3306 | 主数据存储，数据库名 `storedb` |
 | Redis | 6379 | 缓存，key 前缀 `jmall:` |
+| Kafka | 9092 | 消息队列（秒杀异步下单） |
 | user-api | 8881 | 用户服务（注册/登录/信息） |
 | product-api | 8882 | 商品服务（列表/搜索/详情） |
 | cart-api | 8883 | 购物车服务 |
@@ -27,6 +29,8 @@
 | management-api | 8886 | 管理后台服务 |
 | payment-api | 8887 | 支付服务（支付/回调/退款） |
 | aichat-api | 8888 | AI 智能助手服务（豆包大模型 + MCP） |
+| seckill-api | 8889 | 秒杀服务（Redis Lua 预扣库存 + Kafka 异步下单） |
+| recommendation-api | 8889 (容器内) / 8890 (宿主机) | 推荐服务（猜你喜欢、相似商品） |
 | 前端 | 8080 | Nginx（Docker）/ Vue CLI Dev Server（本地） |
 
 ---
@@ -43,10 +47,11 @@ docker compose up --build
 
 启动后会自动完成以下工作：
 
-1. 启动 MySQL 8.0，自动执行 `storeDB.sql` 和 `payment.sql` 初始化数据库
+1. 启动 MySQL 8.0，自动执行 `storeDB.sql`、`payment.sql`、`seckill.sql`、`recommendation.sql` 初始化数据库
 2. 启动 Redis 7
-3. 等待 MySQL 和 Redis 健康检查通过后，启动 7 个后端微服务
-4. 构建前端（`npm run build`），用 Nginx 托管静态文件并反向代理 API 请求
+3. 启动 Kafka（含 Zookeeper）
+4. 等待 MySQL、Redis、Kafka 健康检查通过后，启动 10 个后端微服务
+5. 构建前端（`npm run build`），用 Nginx 托管静态文件并反向代理 API 请求
 
 访问地址：[http://localhost:8080](http://localhost:8080)
 
@@ -73,7 +78,10 @@ docker compose down -v
                                    ├─ /api/user/collect/*     → collect:8885
                                    ├─ /api/resources/*        → management:8886
                                    ├─ /api/management/*       → management:8886
-                                   └─ /api/payment/*          → payment:8887
+                                   ├─ /api/payment/*          → payment:8887
+                                   ├─ /api/aichat/*           → aichat:8888
+                                   ├─ /api/seckill/*          → seckill:8889
+                                   └─ /api/recommend/*        → recommendation:8889
 ```
 
 前端 Dockerfile 采用两阶段构建：
@@ -94,10 +102,11 @@ docker compose down -v
 - Node.js 16+（推荐 16.x，兼容 Vue CLI 4）
 - MySQL 8.0（本地安装或 Docker 容器）
 - Redis 7（本地安装或 Docker 容器）
+- Kafka（秒杀服务需要，本地安装或 Docker 容器）
 
-> 如果只想用 Docker 跑中间件，不想本地装 MySQL/Redis：
+> 如果只想用 Docker 跑中间件，不想本地装 MySQL/Redis/Kafka：
 > ```bash
-> docker compose up mysql redis -d
+> docker compose up mysql redis zookeeper kafka -d
 > ```
 
 ### 第一步：初始化数据库
@@ -105,11 +114,13 @@ docker compose down -v
 ```bash
 mysql -u root -p < backend/model/sql/storeDB.sql
 mysql -u root -p storedb < backend/model/sql/payment.sql
+mysql -u root -p storedb < backend/model/sql/seckill.sql
+mysql -u root -p storedb < backend/model/sql/recommendation.sql
 ```
 
 默认连接信息：`root:root@tcp(localhost:3306)/storedb`，可在各服务的 `etc/<name>-api.yaml` 中修改。
 
-### 第二步：启动后端（7 个服务）
+### 第二步：启动后端（10 个服务）
 
 ```bash
 cd backend
@@ -122,7 +133,12 @@ go run service/order/order.go           -f service/order/etc/order-api.yaml &
 go run service/collect/collect.go       -f service/collect/etc/collect-api.yaml &
 go run service/management/management.go -f service/management/etc/management-api.yaml &
 go run service/payment/payment.go       -f service/payment/etc/payment-api.yaml &
+go run service/aichat/aichat.go         -f service/aichat/etc/aichat-api.yaml &
+go run service/seckill/seckill.go       -f service/seckill/etc/seckill-api.yaml &
+go run service/recommendation/recommendation.go -f service/recommendation/etc/recommendation-api.yaml &
 ```
+
+> 秒杀服务（seckill）依赖 Kafka，启动前请确保 Kafka 已在 `localhost:9092` 运行。
 
 每个服务的配置文件在 `backend/service/<name>/etc/<name>-api.yaml`，可修改数据库连接串、Redis 地址、JWT 密钥等。
 
@@ -221,10 +237,13 @@ JMall/
     ├── model/                    # 数据库模型 + SQL 初始化脚本
     │   └── sql/
     │       ├── storeDB.sql       # 建表 + 种子数据
-    │       └── payment.sql       # 支付相关表
+    │       ├── payment.sql       # 支付相关表
+    │       ├── seckill.sql       # 秒杀活动表 + 秒杀订单表
+    │       └── recommendation.sql # 用户行为日志 + 商品相似度表
     ├── cache/                    # Redis client 封装
     ├── ctxutil/                  # JWT context 工具
     ├── middleware/               # 共享 Auth 中间件
+    ├── kafka/                    # Kafka Producer/Consumer 封装
     └── service/
         ├── user/                 # 用户服务 :8881
         ├── product/              # 商品服务 :8882
@@ -232,7 +251,10 @@ JMall/
         ├── order/                # 订单服务 :8884
         ├── collect/              # 收藏服务 :8885
         ├── management/           # 管理后台服务 :8886
-        └── payment/              # 支付服务 :8887
+        ├── payment/              # 支付服务 :8887
+        ├── aichat/               # AI 智能助手服务 :8888
+        ├── seckill/              # 秒杀服务 :8889（Redis Lua + Kafka）
+        └── recommendation/       # 推荐服务 :8889
 ```
 
 ---
@@ -253,12 +275,17 @@ JMall/
 | management | `/management/getAllOrders` `/management/getOrdersByUserName` `/management/getAllUsers` `/resources/carousel` 等 | 是（管理员） |
 | payment | `/payment/create` `/payment/status` `/payment/refund` `/payment/list` | 是 |
 | payment | `/payment/notify` `/payment/mock/pay` | 否 |
+| seckill | `/seckill/buy` `/seckill/result` | 是 |
+| seckill | `/seckill/activity` `/seckill/activities` | 否 |
+| recommendation | `/recommend/fillup` `/recommend/guessYouLike` `/recommend/reportBehavior` | 是 |
 
 ---
 
 ## 技术文档
 
 详细的业务流程、缓存策略、数据库交互细节见 [docs/technical.md](docs/technical.md)。
+
+秒杀系统的完整架构设计（Redis Lua 原子扣库存、Kafka 削峰填谷、三层防超卖等）见 [docs/seckill-architecture.md](docs/seckill-architecture.md)。
 
 ---
 

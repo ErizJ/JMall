@@ -17,6 +17,8 @@ services:
       - mysql_data:/var/lib/mysql
       - ./backend/model/sql/storeDB.sql:/docker-entrypoint-initdb.d/01-storeDB.sql:ro
       - ./backend/model/sql/payment.sql:/docker-entrypoint-initdb.d/02-payment.sql:ro
+      - ./backend/model/sql/seckill.sql:/docker-entrypoint-initdb.d/03-seckill.sql:ro
+      - ./backend/model/sql/recommendation.sql:/docker-entrypoint-initdb.d/04-recommendation.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
       interval: 5s
@@ -36,6 +38,44 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: jmall-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: jmall-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
 
   # ─── 后端服务 ───────────────────────────────────────────────
 
@@ -193,6 +233,47 @@ services:
       redis:
         condition: service_healthy
 
+  seckill:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: seckill
+    container_name: jmall-seckill
+    restart: unless-stopped
+    ports:
+      - "8889:8889"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  recommendation:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: recommendation
+    container_name: jmall-recommendation
+    restart: unless-stopped
+    ports:
+      - "8890:8889"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # ─── 前端 ──────────────────────────────────────────────────
 
   frontend:
@@ -212,7 +293,11 @@ services:
       - management
       - payment
       - aichat
+      - seckill
+      - recommendation
 
 volumes:
   mysql_data:
   redis_data:
+  zookeeper_data:
+  kafka_data:

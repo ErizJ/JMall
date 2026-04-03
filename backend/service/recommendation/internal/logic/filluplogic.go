@@ -93,7 +93,8 @@ func (l *FillUpLogic) FillUp(req *types.FillUpReq) (resp *types.FillUpResp, err 
 	}
 
 	// ========== 3. 尝试读缓存 ==========
-	cacheKey := fmt.Sprintf("jmall:recommend:fillup:%d:%.0f", userID, cartTotal)
+	// 用分为单位转整数避免浮点截断导致的跨档位缓存碰撞
+	cacheKey := fmt.Sprintf("jmall:recommend:fillup:%d:%d", userID, int64(math.Round(cartTotal*100)))
 	var cached []types.RecommendItem
 	if cacheErr := l.svcCtx.Cache.Get(l.ctx, cacheKey, &cached); cacheErr == nil {
 		return &types.FillUpResp{
@@ -123,7 +124,7 @@ func (l *FillUpLogic) FillUp(req *types.FillUpReq) (resp *types.FillUpResp, err 
 	candidates = append(candidates, l.strategyHotSelling(excludeIds)...)
 
 	// ========== 5. 去重 + 综合评分排序 ==========
-	results := l.deduplicateAndRank(candidates, gap, nearestTier.Threshold)
+	results := l.deduplicateAndRank(candidates, gap)
 
 	// 限制返回数量
 	const maxResults = 12
@@ -226,8 +227,13 @@ func (l *FillUpLogic) strategyPriceGap(gap float64, excludeIds []int64) []scored
 	results := make([]scoredProduct, 0, len(products))
 	for _, p := range products {
 		// 评分：价格越接近gap，分数越高（满分100）
-		priceDiff := math.Abs(p.ProductSellingPrice - gap)
-		priceScore := math.Max(0, 100-priceDiff/gap*100)
+		var priceScore float64
+		if gap > 0 {
+			priceDiff := math.Abs(p.ProductSellingPrice - gap)
+			priceScore = math.Max(0, 100-priceDiff/gap*100)
+		} else {
+			priceScore = 100
+		}
 		results = append(results, scoredProduct{
 			product: p,
 			reason:  "差额精准推荐",
@@ -261,15 +267,11 @@ func (l *FillUpLogic) strategyAssociated(cartProductIds, cartCategoryIds, exclud
 		excludeSet[id] = true
 	}
 
-	// a) combination_product 表的搭配商品 — 批量查询避免 N+1
-	// 先收集所有需要的 vice_product_id，再一次性 FindByIds
+	// a) combination_product 表的搭配商品 — 一次批量查询，消除 N+1
 	viceProductIds := make([]int64, 0, 10)
-	for _, pid := range cartProductIds {
-		combos, err := l.svcCtx.CombinationProductModel.FindByMainProductId(l.ctx, pid)
-		if err != nil {
-			continue
-		}
-		for _, c := range combos {
+	allCombos, combosErr := l.svcCtx.CombinationProductModel.FindByMainProductIds(l.ctx, cartProductIds)
+	if combosErr == nil {
+		for _, c := range allCombos {
 			if !excludeSet[c.ViceProductId] {
 				viceProductIds = append(viceProductIds, c.ViceProductId)
 			}
@@ -334,9 +336,14 @@ func (l *FillUpLogic) strategyHotSelling(excludeIds []int64) []scoredProduct {
 		return nil
 	}
 
+	excludeSet := make(map[int64]bool, len(excludeIds))
+	for _, id := range excludeIds {
+		excludeSet[id] = true
+	}
+
 	results := make([]scoredProduct, 0, len(products))
 	for _, p := range products {
-		if contains(excludeIds, p.ProductId) || p.ProductNum <= 0 {
+		if excludeSet[p.ProductId] || p.ProductNum <= 0 {
 			continue
 		}
 		hot := int64(0)
@@ -357,7 +364,7 @@ func (l *FillUpLogic) strategyHotSelling(excludeIds []int64) []scoredProduct {
 // 价格匹配分：商品价格越接近差额，分数越高
 // 热度分：归一化到 0-100
 
-func (l *FillUpLogic) deduplicateAndRank(candidates []scoredProduct, gap, threshold float64) []types.RecommendItem {
+func (l *FillUpLogic) deduplicateAndRank(candidates []scoredProduct, gap float64) []types.RecommendItem {
 	// 优化：用 map 索引替代内层循环，O(n²) → O(n)
 	indexMap := make(map[int64]int, len(candidates)) // productId -> index in unique
 	unique := make([]scoredProduct, 0, len(candidates))
@@ -456,13 +463,3 @@ func (l *FillUpLogic) deduplicateAndRank(candidates []scoredProduct, gap, thresh
 	return results
 }
 
-// ==================== 工具函数 ====================
-
-func contains(ids []int64, target int64) bool {
-	for _, id := range ids {
-		if id == target {
-			return true
-		}
-	}
-	return false
-}

@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 
+	"github.com/ErizJ/JMall/backend/ctxutil"
 	"github.com/ErizJ/JMall/backend/service/payment/internal/svc"
 	"github.com/ErizJ/JMall/backend/service/payment/internal/types"
 
@@ -24,9 +25,18 @@ func NewGetPaymentStatusLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *GetPaymentStatusLogic) GetPaymentStatus(req *types.GetPaymentStatusReq) (resp *types.GetPaymentStatusResp, err error) {
+	userID, ctxErr := ctxutil.UserIDFromCtx(l.ctx)
+	if ctxErr != nil {
+		return nil, ctxErr
+	}
+
 	payment, findErr := l.svcCtx.PaymentOrderModel.FindByPaymentNo(l.ctx, req.PaymentNo)
 	if findErr != nil {
 		return &types.GetPaymentStatusResp{Code: "404"}, nil
+	}
+
+	if payment.UserId != userID {
+		return &types.GetPaymentStatusResp{Code: "004"}, nil
 	}
 
 	return &types.GetPaymentStatusResp{

@@ -73,7 +73,7 @@ func (l *RefundLogic) Refund(req *types.RefundReq) (resp *types.RefundResp, err 
 
 	// 5. 生成退款流水号
 	now := time.Now()
-	refundNo := fmt.Sprintf("REF%d%03d", now.UnixMilli(), rand.Intn(1000))
+	refundNo := fmt.Sprintf("REF%d%06d", now.UnixMilli(), rand.Intn(1000000))
 
 	// 6. 调用渠道退款
 	ch, chErr := channel.Get(payment.Channel)
@@ -97,6 +97,12 @@ func (l *RefundLogic) Refund(req *types.RefundReq) (resp *types.RefundResp, err 
 	}
 
 	// 7. 事务：创建退款单 + 更新支付单/订单状态 + 回滚库存
+	// 退款单初始状态：同步渠道（Mock）直接成功，异步渠道（微信/支付宝）初始为处理中
+	initialRefundStatus := int64(model.RefundStatusPending)
+	if refundResp.Sync {
+		initialRefundStatus = int64(model.RefundStatusSuccess)
+	}
+
 	txErr := l.svcCtx.PaymentOrderModel.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
 		txRefund := l.svcCtx.PaymentRefundModel.WithSession(session)
 		if _, insertErr := txRefund.Insert(ctx, &model.PaymentRefund{
@@ -108,7 +114,7 @@ func (l *RefundLogic) Refund(req *types.RefundReq) (resp *types.RefundResp, err 
 			Reason:          req.Reason,
 			Channel:         payment.Channel,
 			ChannelRefundNo: refundResp.ChannelRefundNo,
-			Status:          model.RefundStatusSuccess, // Mock 渠道直接成功
+			Status:          initialRefundStatus,
 			CreatedAt:       now.Unix(),
 			UpdatedAt:       now.Unix(),
 		}); insertErr != nil {

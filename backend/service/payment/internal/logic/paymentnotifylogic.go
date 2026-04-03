@@ -100,12 +100,14 @@ func (l *PaymentNotifyLogic) PaymentNotify(req *types.PaymentNotifyReq) (resp *t
 
 	// ========== 6. 过期检查 ==========
 	if payment.ExpireTime > 0 && time.Now().Unix() > payment.ExpireTime {
-		_ = l.svcCtx.PaymentOrderModel.UpdateStatus(l.ctx, req.PaymentNo, model.PaymentStatusClosed, time.Now().Unix())
-
-		// 过期关闭时也要回滚库存并取消订单
+		// 事务内原子更新：支付单关闭 + 订单取消 + 库存回滚
 		orderItems, findOrderErr := l.svcCtx.OrdersModel.FindByOrderId(l.ctx, payment.OrderId)
 		if findOrderErr == nil && len(orderItems) > 0 && orderItems[0].Status == 0 {
-			_ = l.svcCtx.OrdersModel.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
+			_ = l.svcCtx.PaymentOrderModel.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
+				txPayment := l.svcCtx.PaymentOrderModel.WithSession(session)
+				if updateErr := txPayment.UpdateStatus(ctx, req.PaymentNo, model.PaymentStatusClosed, time.Now().Unix()); updateErr != nil {
+					return updateErr
+				}
 				txOrders := l.svcCtx.OrdersModel.WithSession(session)
 				if statusErr := txOrders.UpdateStatusByOrderId(ctx, payment.OrderId, 2); statusErr != nil {
 					return statusErr
@@ -121,6 +123,9 @@ func (l *PaymentNotifyLogic) PaymentNotify(req *types.PaymentNotifyReq) (resp *t
 			for _, item := range orderItems {
 				_ = l.svcCtx.Cache.Del(l.ctx, fmt.Sprintf("jmall:stock:%d", item.ProductId))
 			}
+		} else {
+			// 订单状态已不是待支付，只关闭支付单
+			_ = l.svcCtx.PaymentOrderModel.UpdateStatus(l.ctx, req.PaymentNo, model.PaymentStatusClosed, time.Now().Unix())
 		}
 
 		_ = l.svcCtx.Cache.Del(l.ctx, idempotentKey)
@@ -151,13 +156,14 @@ func (l *PaymentNotifyLogic) PaymentNotify(req *types.PaymentNotifyReq) (resp *t
 			return &types.PaymentNotifyResp{Code: "500"}, nil
 		}
 	} else {
-		// 支付失败：更新支付单状态 + 关闭订单 + 回滚库存
-		_ = l.svcCtx.PaymentOrderModel.UpdateStatus(l.ctx, req.PaymentNo, model.PaymentStatusFailed, now)
-
-		// 回滚库存并更新订单状态为已取消
-		orderItems, findErr := l.svcCtx.OrdersModel.FindByOrderId(l.ctx, payment.OrderId)
-		if findErr == nil && len(orderItems) > 0 && orderItems[0].Status == 0 {
-			_ = l.svcCtx.OrdersModel.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
+		// 支付失败：事务内原子更新支付单状态 + 取消订单 + 回滚库存
+		orderItems, findOrderErr := l.svcCtx.OrdersModel.FindByOrderId(l.ctx, payment.OrderId)
+		if findOrderErr == nil && len(orderItems) > 0 && orderItems[0].Status == 0 {
+			_ = l.svcCtx.PaymentOrderModel.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
+				txPayment := l.svcCtx.PaymentOrderModel.WithSession(session)
+				if updateErr := txPayment.UpdateStatus(ctx, req.PaymentNo, model.PaymentStatusFailed, now); updateErr != nil {
+					return updateErr
+				}
 				txOrders := l.svcCtx.OrdersModel.WithSession(session)
 				if statusErr := txOrders.UpdateStatusByOrderId(ctx, payment.OrderId, 2); statusErr != nil {
 					return statusErr
@@ -174,6 +180,9 @@ func (l *PaymentNotifyLogic) PaymentNotify(req *types.PaymentNotifyReq) (resp *t
 			for _, item := range orderItems {
 				_ = l.svcCtx.Cache.Del(l.ctx, fmt.Sprintf("jmall:stock:%d", item.ProductId))
 			}
+		} else {
+			// 订单状态已不是待支付，只更新支付单状态
+			_ = l.svcCtx.PaymentOrderModel.UpdateStatus(l.ctx, req.PaymentNo, model.PaymentStatusFailed, now)
 		}
 	}
 

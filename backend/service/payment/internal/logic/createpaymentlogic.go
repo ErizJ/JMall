@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -91,11 +92,11 @@ func (l *CreatePaymentLogic) CreatePayment(req *types.CreatePaymentReq) (resp *t
 	for _, item := range orderItems {
 		totalAmountYuan += item.ProductPrice * float64(item.ProductNum)
 	}
-	totalAmountFen := int64(totalAmountYuan * 100)
+	totalAmountFen := int64(math.Round(totalAmountYuan * 100))
 
 	// 6. 生成支付流水号: PAY + 时间戳 + 3位随机数
 	now := time.Now()
-	paymentNo := fmt.Sprintf("PAY%d%03d", now.UnixMilli(), rand.Intn(1000))
+	paymentNo := fmt.Sprintf("PAY%d%06d", now.UnixMilli(), rand.Intn(1000000))
 
 	// 7. 调用支付渠道创建预支付
 	payResp, payErr := ch.CreatePayment(l.ctx, &channel.PayRequest{

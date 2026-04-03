@@ -296,7 +296,27 @@ func execGetCombinationDiscounts(ctx context.Context, svcCtx *svc.ServiceContext
 	if err != nil {
 		return "", err
 	}
-	// Enrich with product names
+
+	// 收集所有需要查询的商品 ID，一次批量查询消除 N+1
+	idSet := make(map[int64]bool, len(combos)*2)
+	for _, c := range combos {
+		idSet[c.MainProductId] = true
+		idSet[c.ViceProductId] = true
+	}
+	allIDs := make([]int64, 0, len(idSet))
+	for id := range idSet {
+		allIDs = append(allIDs, id)
+	}
+	productMap := make(map[int64]string, len(allIDs))
+	if len(allIDs) > 0 {
+		products, fetchErr := svcCtx.ProductModel.FindByIds(ctx, allIDs)
+		if fetchErr == nil {
+			for _, p := range products {
+				productMap[p.ProductId] = p.ProductName
+			}
+		}
+	}
+
 	type comboItem struct {
 		MainProductID       int64  `json:"main_product_id"`
 		MainProductName     string `json:"main_product_name"`
@@ -307,19 +327,14 @@ func execGetCombinationDiscounts(ctx context.Context, svcCtx *svc.ServiceContext
 	}
 	items := make([]comboItem, 0, len(combos))
 	for _, c := range combos {
-		ci := comboItem{
+		items = append(items, comboItem{
 			MainProductID:       c.MainProductId,
+			MainProductName:     productMap[c.MainProductId],
 			ViceProductID:       c.ViceProductId,
+			ViceProductName:     productMap[c.ViceProductId],
 			AmountThreshold:     nullInt64Val(c.AmountThreshold),
 			PriceReductionRange: nullInt64Val(c.PriceReductionRange),
-		}
-		if mp, e := svcCtx.ProductModel.FindOne(ctx, c.MainProductId); e == nil {
-			ci.MainProductName = mp.ProductName
-		}
-		if vp, e := svcCtx.ProductModel.FindOne(ctx, c.ViceProductId); e == nil {
-			ci.ViceProductName = vp.ProductName
-		}
-		items = append(items, ci)
+		})
 	}
 	b, _ := json.Marshal(items)
 	return string(b), nil

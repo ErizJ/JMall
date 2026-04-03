@@ -36,6 +36,7 @@ func (m *MockChannel) QueryPayment(_ context.Context, _ string) (bool, string, e
 func (m *MockChannel) Refund(_ context.Context, req *RefundRequest) (*RefundResponse, error) {
 	return &RefundResponse{
 		ChannelRefundNo: fmt.Sprintf("MOCK_REFUND_%s_%d", req.RefundNo, time.Now().UnixMilli()),
+		Sync:            true, // Mock 渠道同步完成，退款立即成功
 	}, nil
 }
 
