@@ -109,7 +109,7 @@ export default {
 <style scoped>
 .manage-page {}
 .manage-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
-.manage-header h2 { font-size:18px; font-weight:600; color:#333; }
+.manage-header h2 { font-size:18px; font-weight:600; color:var(--text, #333); }
 
 /* 卡片网格 */
 .combo-grid {
@@ -118,9 +118,9 @@ export default {
   gap:16px;
 }
 .combo-card {
-  background:#fff;
+  background:var(--bg-white, #fff);
   border-radius:10px;
-  border:1px solid #f0f0f0;
+  border:1px solid var(--border, #f0f0f0);
   overflow:hidden;
   transition: box-shadow 0.2s;
   position:relative;
@@ -130,7 +130,7 @@ export default {
   position:absolute;
   top:12px;
   right:-24px;
-  background:#ff6700;
+  background:var(--primary, #ff6700);
   color:#fff;
   font-size:11px;
   padding:2px 28px;
@@ -146,14 +146,14 @@ export default {
 }
 .combo-item {
   flex:1;
-  background:#f9f9f9;
+  background:var(--bg, #f9f9f9);
   border-radius:8px;
   padding:12px;
   text-align:center;
   font-size:13px;
-  color:#555;
+  color:var(--text-secondary, #555);
 }
-.combo-item i { display:block; font-size:24px; color:#999; margin-bottom:4px; }
+.combo-item i { display:block; font-size:24px; color:var(--text-muted, #999); margin-bottom:4px; }
 .combo-plus { font-size:20px; color:#ccc; font-weight:300; flex-shrink:0; }
 .combo-rule {
   display:flex;

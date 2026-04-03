@@ -118,21 +118,21 @@ export default {
 <style scoped>
 .manage-page {}
 .manage-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
-.manage-header h2 { font-size:18px; font-weight:600; color:#333; }
-.count-badge { font-size:12px; font-weight:400; color:#999; background:#f5f5f5; padding:2px 8px; border-radius:10px; margin-left:8px; }
+.manage-header h2 { font-size:18px; font-weight:600; color:var(--text, #333); }
+.count-badge { font-size:12px; font-weight:400; color:var(--text-muted, #999); background:var(--bg, #f5f5f5); padding:2px 8px; border-radius:10px; margin-left:8px; }
 .manage-card { border-radius:8px; }
 .cell-user { display:flex; align-items:center; gap:10px; }
 .user-meta {}
-.user-name-text { font-size:13px; color:#333; font-weight:500; }
+.user-name-text { font-size:13px; color:var(--text, #333); font-weight:500; }
 .user-id-text { font-size:11px; color:#bbb; margin-top:1px; }
 .pagi { display:flex; justify-content:flex-end; padding:12px 16px; }
 
 /* 用户详情弹框 */
 .user-profile {}
 .profile-header { display:flex; align-items:center; gap:16px; }
-.profile-header h3 { font-size:18px; color:#333; }
-.profile-header .uid { font-size:12px; color:#999; margin-top:2px; }
+.profile-header h3 { font-size:18px; color:var(--text, #333); }
+.profile-header .uid { font-size:12px; color:var(--text-muted, #999); margin-top:2px; }
 .profile-info {}
-.info-row { display:flex; justify-content:space-between; padding:8px 0; font-size:14px; color:#333; border-bottom:1px solid #fafafa; }
-.info-row .label { color:#999; }
+.info-row { display:flex; justify-content:space-between; padding:8px 0; font-size:14px; color:var(--text, #333); border-bottom:1px solid #fafafa; }
+.info-row .label { color:var(--text-muted, #999); }
 </style>

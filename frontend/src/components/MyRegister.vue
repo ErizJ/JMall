@@ -1,176 +1,242 @@
 <!--
- * @Description: 用户注册组件
- * @Author: hai-27
- * @Date: 2020-02-19 22:20:35
- * @LastEditors: hai-27
- * @LastEditTime: 2020-03-01 15:34:34
+ * @Description: 用户注册组件 - 主流电商弹窗风格
  -->
 <template>
-  <div id="register">
-    <el-dialog title="注册" width="300px" center :visible.sync="isRegister">
-      <el-form
-        :model="RegisterUser"
-        :rules="rules"
-        status-icon
-        ref="ruleForm"
-        class="demo-ruleForm"
-      >
-        <el-form-item prop="name">
-          <el-input
-            prefix-icon="el-icon-user-solid"
-            placeholder="请输入账号"
-            v-model="RegisterUser.name"
-          ></el-input>
-        </el-form-item>
-        <el-form-item prop="pass">
-          <el-input
-            prefix-icon="el-icon-view"
-            type="password"
-            placeholder="请输入密码"
-            v-model="RegisterUser.pass"
-          ></el-input>
-        </el-form-item>
-        <el-form-item prop="confirmPass">
-          <el-input
-            prefix-icon="el-icon-view"
-            type="password"
-            placeholder="请再次输入密码"
-            v-model="RegisterUser.confirmPass"
-          ></el-input>
-        </el-form-item>
-        <el-form-item>
-          <el-button size="medium" type="primary" @click="Register" style="width:100%;">注册</el-button>
-        </el-form-item>
-      </el-form>
-    </el-dialog>
-  </div>
+  <transition name="auth-fade">
+    <div class="auth-overlay" v-if="isRegister" @click.self="isRegister = false">
+      <div class="auth-modal">
+        <!-- 左侧品牌区 -->
+        <div class="auth-brand">
+          <div class="brand-content">
+            <span class="brand-logo">JMall</span>
+            <h3>加入我们</h3>
+            <p>注册账号，开启购物之旅</p>
+            <ul class="brand-features">
+              <li><i class="el-icon-check"></i>新人专享优惠</li>
+              <li><i class="el-icon-check"></i>海量商品</li>
+              <li><i class="el-icon-check"></i>极速配送</li>
+            </ul>
+          </div>
+        </div>
+        <!-- 右侧表单区 -->
+        <div class="auth-body">
+          <span class="modal-close" @click="isRegister = false">
+            <i class="el-icon-close"></i>
+          </span>
+          <div class="form-area">
+            <h2>注册新账号</h2>
+            <el-form
+              :model="RegisterUser"
+              :rules="rules"
+              ref="ruleForm"
+              class="register-form"
+              @submit.native.prevent="Register"
+            >
+              <el-form-item prop="name">
+                <el-input
+                  v-model="RegisterUser.name"
+                  placeholder="用户名（字母开头，5-16位）"
+                  prefix-icon="el-icon-user"
+                ></el-input>
+              </el-form-item>
+              <el-form-item prop="pass">
+                <el-input
+                  v-model="RegisterUser.pass"
+                  type="password"
+                  placeholder="密码（字母开头，6-18位）"
+                  prefix-icon="el-icon-lock"
+                  show-password
+                ></el-input>
+              </el-form-item>
+              <!-- 密码强度 -->
+              <div class="strength-bar" v-if="RegisterUser.pass">
+                <div class="strength-track">
+                  <div
+                    :class="['strength-fill', strengthClass]"
+                    :style="{ width: strengthPercent + '%' }"
+                  ></div>
+                </div>
+                <span :class="['strength-label', strengthClass]">
+                  {{ strengthText }}
+                </span>
+              </div>
+              <el-form-item prop="confirmPass">
+                <el-input
+                  v-model="RegisterUser.confirmPass"
+                  type="password"
+                  placeholder="确认密码"
+                  prefix-icon="el-icon-lock"
+                  show-password
+                  @keyup.enter.native="Register"
+                ></el-input>
+              </el-form-item>
+              <el-button
+                type="primary"
+                :loading="loading"
+                class="submit-btn"
+                @click="Register"
+              >{{ loading ? '注册中' : '注 册' }}</el-button>
+            </el-form>
+            <div class="form-footer">
+              <span>已有账号？</span>
+              <a href="javascript:;" @click="goLogin">去登录</a>
+            </div>
+          </div>
+          <p class="form-agreement">
+            注册即表示同意
+            <a href="javascript:;">用户协议</a> 和
+            <a href="javascript:;">隐私政策</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </transition>
 </template>
+
 <script>
+import { mapActions } from 'vuex'
+
 export default {
-  name: "MyRegister",
-  props: ["register"],
+  name: 'MyRegister',
+  props: ['register'],
   data() {
-    // 用户名的校验方法
     let validateName = (rule, value, callback) => {
-      if (!value) {
-        return callback(new Error("请输入用户名"));
-      }
-      // 用户名以字母开头,长度在5-16之间,允许字母数字下划线
-      const userNameRule = /^[a-zA-Z][a-zA-Z0-9_]{4,15}$/;
-      if (userNameRule.test(value)) {
-        //判断数据库中是否已经存在该用户名
+      if (!value) return callback(new Error('请输入用户名'))
+      const r = /^[a-zA-Z][a-zA-Z0-9_]{4,15}$/
+      if (r.test(value)) {
         this.$axios
-          .post("/api/users/findUserName", {
-            userName: this.RegisterUser.name
-          })
-          .then(res => {
-            // “001”代表用户名不存在，可以注册
-            if (res.data.code == "001") {
-              this.$refs.ruleForm.validateField("checkPass");
-              return callback();
-            } else {
-              return callback(new Error(res.data.msg));
+          .post('/api/users/findUserName', { userName: this.RegisterUser.name })
+          .then((res) => {
+            if (res.data.code == '001') {
+              this.$refs.ruleForm.validateField('checkPass')
+              return callback()
             }
+            return callback(new Error(res.data.msg))
           })
-          .catch(err => {
-            return Promise.reject(err);
-          });
+          .catch((err) => Promise.reject(err))
       } else {
-        return callback(new Error("字母开头,长度5-16之间,允许字母数字下划线"));
+        return callback(new Error('字母开头，长度5-16，允许字母数字下划线'))
       }
-    };
-    // 密码的校验方法
+    }
     let validatePass = (rule, value, callback) => {
-      if (value === "") {
-        return callback(new Error("请输入密码"));
+      if (value === '') return callback(new Error('请输入密码'))
+      const r = /^[a-zA-Z]\w{5,17}$/
+      if (r.test(value)) {
+        this.$refs.ruleForm.validateField('checkPass')
+        return callback()
       }
-      // 密码以字母开头,长度在6-18之间,允许字母数字和下划线
-      const passwordRule = /^[a-zA-Z]\w{5,17}$/;
-      if (passwordRule.test(value)) {
-        this.$refs.ruleForm.validateField("checkPass");
-        return callback();
-      } else {
-        return callback(
-          new Error("字母开头,长度6-18之间,允许字母数字和下划线")
-        );
-      }
-    };
-    // 确认密码的校验方法
+      return callback(new Error('字母开头，长度6-18，允许字母数字下划线'))
+    }
     let validateConfirmPass = (rule, value, callback) => {
-      if (value === "") {
-        return callback(new Error("请输入确认密码"));
+      if (value === '') return callback(new Error('请输入确认密码'))
+      if (this.RegisterUser.pass !== '' && value === this.RegisterUser.pass) {
+        this.$refs.ruleForm.validateField('checkPass')
+        return callback()
       }
-      // 校验是否以密码一致
-      if (this.RegisterUser.pass != "" && value === this.RegisterUser.pass) {
-        this.$refs.ruleForm.validateField("checkPass");
-        return callback();
-      } else {
-        return callback(new Error("两次输入的密码不一致"));
-      }
-    };
+      return callback(new Error('两次输入的密码不一致'))
+    }
     return {
-      isRegister: false, // 控制注册组件是否显示
-      RegisterUser: {
-        name: "",
-        pass: "",
-        confirmPass: ""
-      },
-      // 用户信息校验规则,validator(校验方法),trigger(触发方式),blur为在组件 Input 失去焦点时触发
+      loading: false,
+      isRegister: false,
+      RegisterUser: { name: '', pass: '', confirmPass: '' },
       rules: {
-        name: [{ validator: validateName, trigger: "blur" }],
-        pass: [{ validator: validatePass, trigger: "blur" }],
-        confirmPass: [{ validator: validateConfirmPass, trigger: "blur" }]
-      }
-    };
+        name: [{ validator: validateName, trigger: 'blur' }],
+        pass: [{ validator: validatePass, trigger: 'blur' }],
+        confirmPass: [{ validator: validateConfirmPass, trigger: 'blur' }],
+      },
+    }
+  },
+  computed: {
+    passwordStrength() {
+      const p = this.RegisterUser.pass
+      if (!p) return 0
+      let s = 0
+      if (p.length >= 6) s++
+      if (p.length >= 10) s++
+      if (/[A-Z]/.test(p)) s++
+      if (/[0-9]/.test(p)) s++
+      if (/[_]/.test(p)) s++
+      return Math.min(s, 4)
+    },
+    strengthPercent() { return this.passwordStrength * 25 },
+    strengthClass() {
+      return ['', 'weak', 'fair', 'good', 'strong'][this.passwordStrength] || ''
+    },
+    strengthText() {
+      return ['', '弱', '一般', '较强', '强'][this.passwordStrength] || ''
+    },
   },
   watch: {
-    // 监听父组件传过来的register变量，设置this.isRegister的值
-    register: function(val) {
-      if (val) {
-        this.isRegister = val;
+    register(val) { if (val) this.isRegister = val },
+    isRegister(val) {
+      if (!val) {
+        if (this.$refs.ruleForm) this.$refs.ruleForm.resetFields()
+        this.$emit('fromChild', val)
       }
     },
-    // 监听this.isRegister变量的值，更新父组件register变量的值
-    isRegister: function(val) {
-      if (!val) {
-        this.$refs["ruleForm"].resetFields();
-        this.$emit("fromChild", val);
-      }
-    }
   },
   methods: {
+    ...mapActions(['setShowLogin']),
+    goLogin() {
+      this.isRegister = false
+      this.$nextTick(() => { this.setShowLogin(true) })
+    },
     Register() {
-      // 通过element自定义表单校验规则，校验用户输入的用户信息
-      this.$refs["ruleForm"].validate(valid => {
-        //如果通过校验开始注册
-        if (valid) {
-          this.$axios
-            .post("/api/users/register", {
-              userName: this.RegisterUser.name,
-              password: this.RegisterUser.pass
-            })
-            .then(res => {
-              // “001”代表注册成功，其他的均为失败
-              if (res.data.code === "001") {
-                // 隐藏注册组件
-                this.isRegister = false;
-                // 弹出通知框提示注册成功信息
-                this.notifySucceed(res.data.msg);
-              } else {
-                // 弹出通知框提示注册失败信息
-                this.notifyError(res.data.msg);
-              }
-            })
-            .catch(err => {
-              return Promise.reject(err);
-            });
-        } else {
-          return false;
-        }
-      });
-    }
-  }
-};
+      this.$refs.ruleForm.validate((valid) => {
+        if (!valid) return
+        this.loading = true
+        this.$axios
+          .post('/api/users/register', {
+            userName: this.RegisterUser.name,
+            password: this.RegisterUser.pass,
+          })
+          .then((res) => {
+            this.loading = false
+            if (res.data.code === '001') {
+              this.isRegister = false
+              this.notifySucceed(res.data.msg)
+            } else {
+              this.notifyError(res.data.msg)
+            }
+          })
+          .catch(() => { this.loading = false })
+      })
+    },
+  },
+}
 </script>
-<style>
+
+<style scoped>
+/* 密码强度条 */
+.strength-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -12px 0 18px;
+}
+.strength-track {
+  flex: 1;
+  height: 4px;
+  background: var(--border, #eee);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.strength-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s, background 0.3s;
+}
+.strength-fill.weak { background: #f56c6c; }
+.strength-fill.fair { background: #e6a23c; }
+.strength-fill.good { background: #409eff; }
+.strength-fill.strong { background: #67c23a; }
+.strength-label {
+  font-size: 12px;
+  flex-shrink: 0;
+  width: 28px;
+}
+.strength-label.weak { color: #f56c6c; }
+.strength-label.fair { color: #e6a23c; }
+.strength-label.good { color: #409eff; }
+.strength-label.strong { color: #67c23a; }
 </style>

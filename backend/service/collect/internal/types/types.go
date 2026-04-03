@@ -38,3 +38,13 @@ type GetCollectResp struct {
 	Code     string        `json:"code"`
 	Collects []CollectItem `json:"collects,omitempty"`
 }
+
+type IsCollectedReq struct {
+	UserID    int64 `json:"user_id"`
+	ProductID int64 `json:"product_id"`
+}
+
+type IsCollectedResp struct {
+	Code        string `json:"code"`
+	IsCollected bool   `json:"is_collected"`
+}

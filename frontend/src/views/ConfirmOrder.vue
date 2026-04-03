@@ -1,147 +1,131 @@
 <!--
- * @Description: 确认订单页面组件
+ * @Description: 确认订单页面组件 - 现代电商风格
  -->
 <template>
   <div class="confirmOrder">
-    <!-- 头部 -->
-    <div class="confirmOrder-header">
-      <div class="header-content">
-        <p>
-          <i class="el-icon-s-order"></i>
-        </p>
-        <p>确认订单</p>
-        <router-link to></router-link>
+    <!-- 步骤条 -->
+    <div class="steps-bar">
+      <div class="steps-inner">
+        <el-steps :active="1" finish-status="success" align-center>
+          <el-step title="购物车" icon="el-icon-shopping-cart-2"></el-step>
+          <el-step title="确认订单" icon="el-icon-s-order"></el-step>
+          <el-step title="支付" icon="el-icon-wallet"></el-step>
+        </el-steps>
       </div>
     </div>
-    <!-- 头部END -->
 
-    <!-- 主要内容容器 -->
-    <div class="content">
-      <!-- 选择地址 -->
-      <div class="section-address">
-        <p class="title">收货地址</p>
-        <div class="address-body">
-          <ul>
-            <li
-              :class="item.id == confirmAddress ? 'in-section' : ''"
-              v-for="item in address"
-              :key="item.id"
-            >
-              <h2>{{ item.name }}</h2>
-              <p class="phone">{{ item.phone }}</p>
-              <p class="address">{{ item.address }}</p>
-            </li>
-            <li class="add-address">
-              <i class="el-icon-circle-plus-outline"></i>
-              <p>添加新地址</p>
-            </li>
-          </ul>
+    <!-- 主要内容 -->
+    <div class="order-container">
+      <!-- 收货地址 -->
+      <div class="section-card">
+        <div class="card-title"><i class="el-icon-location-outline"></i> 收货地址</div>
+        <div class="address-list">
+          <div
+            :class="['address-item', { active: item.id === confirmAddress }]"
+            v-for="item in address"
+            :key="item.id"
+            @click="confirmAddress = item.id"
+          >
+            <div class="addr-check">
+              <i v-if="item.id === confirmAddress" class="el-icon-success"></i>
+            </div>
+            <div class="addr-info">
+              <div class="addr-top">
+                <span class="addr-name">{{ item.name }}</span>
+                <span class="addr-phone">{{ item.phone }}</span>
+              </div>
+              <p class="addr-detail">{{ item.address }}</p>
+            </div>
+          </div>
+          <div class="address-item add-new">
+            <i class="el-icon-plus"></i>
+            <span>添加新地址</span>
+          </div>
         </div>
       </div>
-      <!-- 选择地址END -->
 
-      <!-- 商品及优惠券 -->
-      <div class="section-goods">
-        <p class="title">商品及优惠券</p>
-        <div class="goods-list">
-          <ul>
-            <li v-for="item in getCheckGoods" :key="item.id">
-              <img :src="$target + item.productImg" />
-              <span class="pro-name">{{ item.productName }}</span>
-              <span class="pro-price">{{ item.price }}元 x {{ item.num }}</span>
-              <span class="pro-status"></span>
-              <span class="pro-total">{{ item.price * item.num }}元</span>
-            </li>
-          </ul>
+      <!-- 商品清单 -->
+      <div class="section-card">
+        <div class="card-title"><i class="el-icon-goods"></i> 商品清单</div>
+        <div class="product-list">
+          <div class="product-item" v-for="item in getCheckGoods" :key="item.id">
+            <img :src="$target + item.productImg" class="prod-img" />
+            <div class="prod-info">
+              <p class="prod-name">{{ item.productName }}</p>
+            </div>
+            <span class="prod-price">¥{{ item.price }}</span>
+            <span class="prod-qty">× {{ item.num }}</span>
+            <span class="prod-subtotal">¥{{ (item.price * item.num).toFixed(2) }}</span>
+          </div>
         </div>
       </div>
-      <!-- 商品及优惠券END -->
 
-      <!-- 配送方式 -->
-      <div class="section-shipment">
-        <p class="title">配送方式</p>
-        <p class="shipment">包邮</p>
-      </div>
-      <!-- 配送方式END -->
-
-      <!-- 发票 -->
-      <div class="section-invoice">
-        <p class="title">发票</p>
-        <p class="invoice">电子发票</p>
-        <p class="invoice">个人</p>
-        <p class="invoice">商品明细</p>
-      </div>
-      <!-- 发票END -->
-
-      <!-- 结算列表 -->
-      <div class="section-count">
-        <div class="money-box">
-          <ul>
-            <li>
-              <span class="title">商品件数：</span>
-              <span class="value">{{ getCheckNum }}件</span>
-            </li>
-            <li>
-              <span class="title">商品总价：</span>
-              <span class="value">{{ getTotalPrice }}元</span>
-            </li>
-            <li>
-              <span class="title">满减优惠：</span>
-              <span class="value">-{{ sale }}元</span>
-            </li>
-            <li>
-              <span class="title">运费：</span>
-              <span class="value">0元</span>
-            </li>
-            <li class="total">
-              <span class="title">应付总额：</span>
-              <span class="value">
-                <span class="total-price">{{ getTotalPrice - sale }}</span>元
-              </span>
-            </li>
-          </ul>
+      <!-- 配送与发票 -->
+      <div class="section-card">
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">配送方式</span>
+            <span class="info-value"><i class="el-icon-truck"></i> 包邮</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">发票信息</span>
+            <span class="info-value">电子发票 · 个人 · 商品明细</span>
+          </div>
         </div>
       </div>
-      <!-- 结算列表END -->
 
-      <!-- 结算导航 -->
-      <div class="section-bar">
-        <div class="btn">
-          <router-link to="/shoppingCart" class="btn-base btn-return">返回购物车</router-link>
-          <a
-            href="javascript:void(0);"
-            @click="addOrder"
-            class="btn-base btn-primary"
-          >结算</a>
+      <!-- 结算汇总 -->
+      <div class="section-card settle-card">
+        <div class="settle-rows">
+          <div class="settle-row">
+            <span>商品件数</span>
+            <span>{{ getCheckNum }} 件</span>
+          </div>
+          <div class="settle-row">
+            <span>商品总价</span>
+            <span>¥{{ getTotalPrice.toFixed(2) }}</span>
+          </div>
+          <div class="settle-row" v-if="sale > 0">
+            <span>满减优惠</span>
+            <span class="discount">-¥{{ sale }}</span>
+          </div>
+          <div class="settle-row">
+            <span>运费</span>
+            <span>免运费</span>
+          </div>
+          <div class="settle-row total">
+            <span>应付总额</span>
+            <span class="total-price">¥{{ (getTotalPrice - sale).toFixed(2) }}</span>
+          </div>
         </div>
       </div>
-      <!-- 结算导航END -->
+
+      <!-- 底部操作栏 -->
+      <div class="action-bar">
+        <router-link to="/shoppingCart" class="link-back">
+          <i class="el-icon-arrow-left"></i> 返回购物车
+        </router-link>
+        <div class="action-right">
+          <div class="action-summary">
+            <span class="action-count">共 {{ getCheckNum }} 件商品</span>
+            <span class="action-total">应付：<em>¥{{ (getTotalPrice - sale).toFixed(2) }}</em></span>
+          </div>
+          <el-button type="primary" size="medium" class="submit-btn" @click="addOrder">提交订单</el-button>
+        </div>
+      </div>
     </div>
-    <!-- 主要内容容器END -->
   </div>
 </template>
 <script>
-import { mapGetters } from 'vuex'
-import { mapActions } from 'vuex'
+import { mapGetters, mapActions } from 'vuex'
 export default {
-  name: '',
   data() {
     return {
       sale: 0,
       confirmAddress: 1,
       address: [
-        {
-          id: 1,
-          name: '郑嘉',
-          phone: '189****2638',
-          address: '广东 广州市 海珠区 广东财经大学',
-        },
-        {
-          id: 2,
-          name: 'ErizJ',
-          phone: '159****3182',
-          address: '广东 揭阳市 榕城区 ***',
-        },
+        { id: 1, name: '张三', phone: '189****2638', address: '广东 广州市 海珠区 某某大学' },
+        { id: 2, name: '李四', phone: '159****3182', address: '广东 深圳市 南山区 某某科技园' },
       ],
     }
   },
@@ -197,242 +181,202 @@ export default {
             this.notifyError(res.data.msg || '下单失败')
           }
         })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
+        .catch((err) => Promise.reject(err))
     },
   },
 }
 </script>
 <style scoped>
 .confirmOrder {
-  background-color: #f5f5f5;
-  padding-bottom: 20px;
+  background: var(--bg, #f5f5f5);
+  min-height: calc(100vh - 260px);
+  padding-bottom: 40px;
 }
-.confirmOrder .confirmOrder-header {
-  background-color: #fff;
-  border-bottom: 2px solid #409EFF;
-  margin-bottom: 20px;
+
+/* 步骤条 */
+.steps-bar {
+  background: var(--bg-white, #fff);
+  border-bottom: 1px solid var(--border, #e8e8e8);
+  padding: 24px 0;
 }
-.confirmOrder .confirmOrder-header .header-content {
-  width: 1225px;
+.steps-inner {
+  max-width: 500px;
   margin: 0 auto;
-  height: 80px;
 }
-.confirmOrder .confirmOrder-header .header-content p {
-  float: left;
-  font-size: 28px;
-  line-height: 80px;
-  color: #424242;
-  margin-right: 20px;
+
+/* 容器 */
+.order-container {
+  max-width: var(--content-width, 1226px);
+  margin: 24px auto 0;
+  padding: 0 20px;
 }
-.confirmOrder .confirmOrder-header .header-content p i {
-  font-size: 45px;
-  color: #409EFF;
-  line-height: 80px;
-}
-.confirmOrder .content {
-  width: 1225px;
-  margin: 0 auto;
-  padding: 48px 0 0;
-  background-color: #fff;
-}
-.confirmOrder .content .section-address {
-  margin: 0 48px;
+
+/* 通用卡片 */
+.section-card {
+  background: var(--bg-white, #fff);
+  border-radius: 8px;
+  margin-bottom: 16px;
   overflow: hidden;
 }
-.confirmOrder .content .section-address .title {
-  color: #333;
-  font-size: 18px;
-  line-height: 20px;
-  margin-bottom: 20px;
+.card-title {
+  padding: 16px 30px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text, #333);
+  border-bottom: 1px solid var(--border, #f0f0f0);
 }
-.confirmOrder .content .address-body li {
-  float: left;
-  color: #333;
-  width: 220px;
-  height: 178px;
-  border: 1px solid #e0e0e0;
-  padding: 15px 24px 0;
-  margin-right: 17px;
-  margin-bottom: 24px;
+.card-title i { color: var(--primary, #ff6700); margin-right: 6px; }
+
+/* 收货地址 */
+.address-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 20px 30px;
 }
-.confirmOrder .content .address-body .in-section {
-  border: 1px solid #409EFF;
+.address-item {
+  width: 240px;
+  border: 2px solid var(--border, #e8e8e8);
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  gap: 10px;
 }
-.confirmOrder .content .address-body li h2 {
-  font-size: 18px;
-  font-weight: normal;
-  line-height: 30px;
-  margin-bottom: 10px;
+.address-item:hover { border-color: var(--primary-light, #ff8533); }
+.address-item.active { border-color: var(--primary, #ff6700); background: rgba(255, 103, 0, 0.02); }
+.addr-check {
+  width: 20px;
+  flex-shrink: 0;
+  padding-top: 2px;
 }
-.confirmOrder .content .address-body li p {
+.addr-check i { color: var(--primary, #ff6700); font-size: 18px; }
+.addr-top { display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
+.addr-name { font-size: 15px; font-weight: 500; color: var(--text, #333); }
+.addr-phone { font-size: 13px; color: var(--text-muted, #999); }
+.addr-detail { font-size: 13px; color: var(--text-secondary, #666); line-height: 1.5; }
+.add-new {
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted, #999);
+  border-style: dashed;
+}
+.add-new i { font-size: 24px; }
+.add-new span { font-size: 13px; }
+
+/* 商品清单 */
+.product-list { padding: 0 30px; }
+.product-item {
+  display: flex;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid #f8f8f8;
+}
+.product-item:last-child { border-bottom: none; }
+.prod-img {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #f9f9f9;
+  border: 1px solid #f0f0f0;
+  flex-shrink: 0;
+  margin-right: 16px;
+}
+.prod-info { flex: 1; min-width: 0; }
+.prod-name {
   font-size: 14px;
-  color: #757575;
-}
-.confirmOrder .content .address-body li .address {
-  padding: 10px 0;
-  max-width: 180px;
-  max-height: 88px;
-  line-height: 22px;
+  color: var(--text, #333);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.confirmOrder .content .address-body .add-address {
-  text-align: center;
-  line-height: 30px;
-}
-.confirmOrder .content .address-body .add-address i {
-  font-size: 30px;
-  padding-top: 50px;
-  text-align: center;
-}
-.confirmOrder .content .section-goods {
-  margin: 0 48px;
-}
-.confirmOrder .content .section-goods p.title {
-  color: #333;
-  font-size: 18px;
-  line-height: 40px;
-}
-.confirmOrder .content .section-goods .goods-list {
-  padding: 5px 0;
-  border-top: 1px solid #e0e0e0;
-  border-bottom: 1px solid #e0e0e0;
-}
-.confirmOrder .content .section-goods .goods-list li {
-  padding: 10px 0;
-  color: #424242;
-  overflow: hidden;
-}
-.confirmOrder .content .section-goods .goods-list li img {
-  float: left;
-  width: 30px;
-  height: 30px;
-  margin-right: 10px;
-}
-.confirmOrder .content .section-goods .goods-list li .pro-name {
-  float: left;
-  width: 650px;
-  line-height: 30px;
-}
-.confirmOrder .content .section-goods .goods-list li .pro-price {
-  float: left;
-  width: 150px;
-  text-align: center;
-  line-height: 30px;
-}
-.confirmOrder .content .section-goods .goods-list li .pro-status {
-  float: left;
-  width: 99px;
-  height: 30px;
-  text-align: center;
-  line-height: 30px;
-}
-.confirmOrder .content .section-goods .goods-list li .pro-total {
-  float: left;
-  width: 190px;
-  text-align: center;
-  color: #409EFF;
-  line-height: 30px;
-}
-.confirmOrder .content .section-shipment {
-  margin: 0 48px;
-  padding: 25px 0;
-  border-bottom: 1px solid #e0e0e0;
-  overflow: hidden;
-}
-.confirmOrder .content .section-shipment .title {
-  float: left;
-  width: 150px;
-  color: #333;
-  font-size: 18px;
-  line-height: 38px;
-}
-.confirmOrder .content .section-shipment .shipment {
-  float: left;
-  line-height: 38px;
+.prod-price { width: 90px; text-align: center; font-size: 14px; color: var(--text-secondary, #666); flex-shrink: 0; }
+.prod-qty { width: 60px; text-align: center; font-size: 14px; color: var(--text-muted, #999); flex-shrink: 0; }
+.prod-subtotal { width: 100px; text-align: right; font-size: 15px; font-weight: 600; color: var(--primary, #ff6700); flex-shrink: 0; }
+
+/* 配送与发票 */
+.info-grid { padding: 20px 30px; }
+.info-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
   font-size: 14px;
-  color: #409EFF;
 }
-.confirmOrder .content .section-invoice {
-  margin: 0 48px;
-  padding: 25px 0;
-  border-bottom: 1px solid #e0e0e0;
-  overflow: hidden;
-}
-.confirmOrder .content .section-invoice .title {
-  float: left;
-  width: 150px;
-  color: #333;
-  font-size: 18px;
-  line-height: 38px;
-}
-.confirmOrder .content .section-invoice .invoice {
-  float: left;
-  line-height: 38px;
+.info-label { color: var(--text-muted, #999); width: 80px; flex-shrink: 0; }
+.info-value { color: var(--text-secondary, #666); }
+.info-value i { color: var(--primary, #ff6700); margin-right: 4px; }
+
+/* 结算汇总 */
+.settle-card { padding: 20px 30px; }
+.settle-rows { max-width: 300px; margin-left: auto; }
+.settle-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
   font-size: 14px;
-  margin-right: 20px;
-  color: #409EFF;
+  color: var(--text-secondary, #666);
 }
-.confirmOrder .content .section-count {
-  margin: 0 48px;
-  padding: 20px 0;
-  overflow: hidden;
+.settle-row .discount { color: #f56c6c; }
+.settle-row.total {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #f0f0f0);
 }
-.confirmOrder .content .section-count .money-box {
-  float: right;
-  text-align: right;
+.total-price {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--primary, #ff6700);
 }
-.confirmOrder .content .section-count .money-box .title {
-  float: left;
-  width: 126px;
-  height: 30px;
-  display: block;
-  line-height: 30px;
-  color: #757575;
+
+/* 底部操作栏 */
+.action-bar {
+  background: var(--bg-white, #fff);
+  border-radius: 8px;
+  padding: 20px 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
-.confirmOrder .content .section-count .money-box .value {
-  float: left;
-  min-width: 105px;
-  height: 30px;
-  display: block;
-  line-height: 30px;
-  color: #409EFF;
-}
-.confirmOrder .content .section-count .money-box .total .title {
-  padding-top: 15px;
-}
-.confirmOrder .content .section-count .money-box .total .value {
-  padding-top: 10px;
-}
-.confirmOrder .content .section-count .money-box .total-price {
-  font-size: 30px;
-}
-.confirmOrder .content .section-bar {
-  padding: 20px 48px;
-  border-top: 2px solid #f5f5f5;
-  overflow: hidden;
-}
-.confirmOrder .content .section-bar .btn {
-  float: right;
-}
-.confirmOrder .content .section-bar .btn .btn-base {
-  float: left;
-  margin-left: 30px;
-  width: 158px;
-  height: 38px;
-  border: 1px solid #b0b0b0;
+.link-back {
   font-size: 14px;
-  line-height: 38px;
-  text-align: center;
+  color: var(--text-muted, #999);
+  transition: color 0.2s;
 }
-.confirmOrder .content .section-bar .btn .btn-return {
-  color: rgba(0, 0, 0, 0.27);
-  border-color: rgba(0, 0, 0, 0.27);
+.link-back:hover { color: var(--primary, #ff6700); }
+.action-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
 }
-.confirmOrder .content .section-bar .btn .btn-primary {
-  background: #409EFF;
-  border-color: #409EFF;
-  color: #fff;
+.action-summary { text-align: right; }
+.action-count { font-size: 13px; color: var(--text-muted, #999); display: block; }
+.action-total { font-size: 14px; color: var(--text, #333); }
+.action-total em {
+  font-style: normal;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--primary, #ff6700);
 }
+.submit-btn {
+  height: 44px;
+  padding: 0 40px;
+  font-size: 16px;
+  border-radius: 22px;
+  background: var(--primary, #ff6700);
+  border-color: var(--primary, #ff6700);
+}
+.submit-btn:hover {
+  background: var(--primary-dark, #e55d00);
+  border-color: var(--primary-dark, #e55d00);
+}
+
+/* Element steps 主题色覆盖 */
+.confirmOrder >>> .el-step__head.is-finish { color: var(--primary, #ff6700); border-color: var(--primary, #ff6700); }
+.confirmOrder >>> .el-step__title.is-finish { color: var(--primary, #ff6700); }
+.confirmOrder >>> .el-step__head.is-process { color: var(--primary, #ff6700); border-color: var(--primary, #ff6700); }
+.confirmOrder >>> .el-step__title.is-process { color: var(--primary, #ff6700); font-weight: 600; }
 </style>

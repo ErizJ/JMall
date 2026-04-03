@@ -35,6 +35,14 @@ type (
 	DeleteCollectResp {
 		Code string `json:"code"`
 	}
+	IsCollectedReq {
+		UserID    int64 `json:"user_id"`
+		ProductID int64 `json:"product_id"`
+	}
+	IsCollectedResp {
+		Code        string `json:"code"`
+		IsCollected bool   `json:"is_collected"`
+	}
 )
 
 @server (
@@ -49,5 +57,8 @@ service collect-api {
 
 	@handler DeleteCollectHandler
 	post /user/collect/deleteCollect (DeleteCollectReq) returns (DeleteCollectResp)
+
+	@handler IsCollectedHandler
+	post /user/collect/isCollected (IsCollectedReq) returns (IsCollectedResp)
 }
 

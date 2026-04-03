@@ -135,7 +135,7 @@ export default {
 .thumb { width:44px; height:44px; border-radius:6px; object-fit:contain; background:var(--bg, #f9f9f9); border:1px solid var(--border, #f0f0f0); flex-shrink:0; }
 .name { font-size:13px; color:var(--text, #333); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sub { font-size:12px; color:var(--text-muted, #999); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; }
-.c-price { color:#ff6700; font-weight:600; font-size:13px; }
+.c-price { color:var(--primary, #ff6700); font-weight:600; font-size:13px; }
 .c-old { color:#bbb; text-decoration:line-through; font-size:12px; margin-left:4px; }
 .pagi { display:flex; justify-content:flex-end; padding:12px 16px; }
 </style>

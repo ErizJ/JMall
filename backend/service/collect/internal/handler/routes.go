@@ -31,6 +31,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/user/collect/getCollect",
 					Handler: GetCollectHandler(serverCtx),
 				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/user/collect/isCollected",
+					Handler: IsCollectedHandler(serverCtx),
+				},
 			}...,
 		),
 	)
