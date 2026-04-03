@@ -57,12 +57,23 @@ export interface OrderItem {
   product_num: number
   product_price: number
   order_time: string
+  status: number // 0=待支付 1=已支付 2=已取消 3=已退款
 }
 
 export interface AddOrderItem {
   product_id: number
   product_num: number
   product_price: number
+}
+
+// Payment
+export interface PaymentItem {
+  payment_no: string
+  order_id: number
+  amount: number
+  channel: string
+  status: number // 0=待支付 1=支付中 2=成功 3=失败 4=关闭 5=退款
+  created_at: number
 }
 
 // Collect
@@ -94,4 +105,21 @@ export interface CombinationItem {
 export interface ApiResp {
   code: string
   message?: string
+}
+
+// Order status helpers
+export const ORDER_STATUS_MAP: Record<number, string> = {
+  0: '待支付',
+  1: '已支付',
+  2: '已取消',
+  3: '已退款',
+}
+
+export const PAYMENT_STATUS_MAP: Record<number, string> = {
+  0: '待支付',
+  1: '支付中',
+  2: '支付成功',
+  3: '支付失败',
+  4: '已关闭',
+  5: '已退款',
 }

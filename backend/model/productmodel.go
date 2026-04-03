@@ -16,6 +16,7 @@ type (
 	ProductModel interface {
 		productModel
 		withSession(session sqlx.Session) ProductModel
+		WithSession(session sqlx.Session) ProductModel
 		FindAll(ctx context.Context) ([]*Product, error)
 		FindByIds(ctx context.Context, ids []int64) ([]*Product, error)
 		FindByCategory(ctx context.Context, categoryId int64) ([]*Product, error)
@@ -24,6 +25,8 @@ type (
 		FindTopHotByCategory(ctx context.Context, categoryId int64, limit int) ([]*Product, error)
 		FindByIsPromotion(ctx context.Context, limit int) ([]*Product, error)
 		IncrProductHot(ctx context.Context, productId int64) error
+		DecrStock(ctx context.Context, productId int64, num int64) error
+		IncrStock(ctx context.Context, productId int64, num int64) error
 	}
 
 	customProductModel struct {
@@ -126,4 +129,30 @@ func (m *customProductModel) FindByIds(ctx context.Context, ids []int64) ([]*Pro
 		return nil, err
 	}
 	return resp, nil
+}
+
+func (m *customProductModel) WithSession(session sqlx.Session) ProductModel {
+	return NewProductModel(sqlx.NewSqlConnFromSession(session))
+}
+
+// DecrStock 扣减库存（数据库层面，事务内使用）
+// WHERE product_num >= num 防止超卖
+func (m *customProductModel) DecrStock(ctx context.Context, productId int64, num int64) error {
+	query := fmt.Sprintf("update %s set `product_num` = `product_num` - ? where `product_id` = ? and `product_num` >= ?", m.table)
+	result, err := m.conn.ExecCtx(ctx, query, num, productId, num)
+	if err != nil {
+		return err
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("insufficient stock for product %d", productId)
+	}
+	return nil
+}
+
+// IncrStock 回滚库存（退款/订单取消时使用）
+func (m *customProductModel) IncrStock(ctx context.Context, productId int64, num int64) error {
+	query := fmt.Sprintf("update %s set `product_num` = `product_num` + ? where `product_id` = ?", m.table)
+	_, err := m.conn.ExecCtx(ctx, query, num, productId)
+	return err
 }

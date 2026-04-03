@@ -12,4 +12,9 @@ if [ -n "$REDIS_ADDR" ]; then
   sed -i "s|Addr:.*|Addr: ${REDIS_ADDR}|" "$CONFIG"
 fi
 
+# Payment service specific: inject notify URL
+if [ -n "$PAYMENT_NOTIFY_URL" ]; then
+  sed -i "s|NotifyUrl:.*|NotifyUrl: ${PAYMENT_NOTIFY_URL}|" "$CONFIG"
+fi
+
 exec /app/service -f "$CONFIG"

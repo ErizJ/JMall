@@ -1,0 +1,109 @@
+syntax = "v1"
+
+info (
+	title:  "JMall Payment Service"
+	author: "ErizJ"
+)
+
+type (
+	// ========== 创建支付单 ==========
+	CreatePaymentReq {
+		OrderID int64  `json:"order_id"`           // 业务订单ID
+		Channel string `json:"channel"`             // 支付渠道: mock / wechat / alipay
+	}
+	CreatePaymentResp {
+		Code      string `json:"code"`
+		PaymentNo string `json:"payment_no,omitempty"` // 支付流水号
+		PayUrl    string `json:"pay_url,omitempty"`    // 支付跳转URL（微信/支付宝返回）
+	}
+
+	// ========== 查询支付状态 ==========
+	GetPaymentStatusReq {
+		PaymentNo string `json:"payment_no"`
+	}
+	GetPaymentStatusResp {
+		Code      string `json:"code"`
+		PaymentNo string `json:"payment_no,omitempty"`
+		OrderID   int64  `json:"order_id,omitempty"`
+		Amount    int64  `json:"amount,omitempty"`       // 单位：分
+		Channel   string `json:"channel,omitempty"`
+		Status    int64  `json:"status,omitempty"`        // 0待支付 1支付中 2成功 3失败 4关闭 5退款
+		PaidTime  int64  `json:"paid_time,omitempty"`
+	}
+
+	// ========== 支付回调（第三方渠道调用，无需鉴权） ==========
+	PaymentNotifyReq {
+		PaymentNo      string `json:"payment_no"`
+		ChannelTradeNo string `json:"channel_trade_no"`
+		Status         string `json:"status"`              // success / fail
+		Amount         int64  `json:"amount"`               // 实际支付金额（分），用于校验
+		PaidTime       int64  `json:"paid_time"`
+		Sign           string `json:"sign"`                // 签名（生产环境验签用）
+	}
+	PaymentNotifyResp {
+		Code string `json:"code"`
+	}
+
+	// ========== 申请退款 ==========
+	RefundReq {
+		PaymentNo    string `json:"payment_no"`
+		RefundAmount int64  `json:"refund_amount"`   // 退款金额（分）
+		Reason       string `json:"reason"`
+	}
+	RefundResp {
+		Code     string `json:"code"`
+		RefundNo string `json:"refund_no,omitempty"`
+	}
+
+	// ========== 查询用户支付记录 ==========
+	GetUserPaymentsReq {
+		UserID int64 `json:"user_id"`
+	}
+	PaymentItem {
+		PaymentNo string `json:"payment_no"`
+		OrderID   int64  `json:"order_id"`
+		Amount    int64  `json:"amount"`
+		Channel   string `json:"channel"`
+		Status    int64  `json:"status"`
+		CreatedAt int64  `json:"created_at"`
+	}
+	GetUserPaymentsResp {
+		Code     string        `json:"code"`
+		Payments []PaymentItem `json:"payments,omitempty"`
+	}
+
+	// ========== Mock支付：模拟前端确认支付 ==========
+	MockPayReq {
+		PaymentNo string `json:"payment_no"`
+	}
+	MockPayResp {
+		Code string `json:"code"`
+	}
+)
+
+// 需要鉴权的接口
+@server (
+	middleware: AuthMiddleware
+)
+service payment-api {
+	@handler CreatePaymentHandler
+	post /payment/create (CreatePaymentReq) returns (CreatePaymentResp)
+
+	@handler GetPaymentStatusHandler
+	post /payment/status (GetPaymentStatusReq) returns (GetPaymentStatusResp)
+
+	@handler RefundHandler
+	post /payment/refund (RefundReq) returns (RefundResp)
+
+	@handler GetUserPaymentsHandler
+	post /payment/list (GetUserPaymentsReq) returns (GetUserPaymentsResp)
+}
+
+// 不需要鉴权的接口（回调 + Mock）
+service payment-api {
+	@handler PaymentNotifyHandler
+	post /payment/notify (PaymentNotifyReq) returns (PaymentNotifyResp)
+
+	@handler MockPayHandler
+	post /payment/mock/pay (MockPayReq) returns (MockPayResp)
+}

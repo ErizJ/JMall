@@ -74,6 +74,7 @@ func (l *GetOrderLogic) GetOrder(req *types.GetOrderReq) (resp *types.GetOrderRe
 			ProductNum:   row.ProductNum,
 			ProductPrice: row.ProductPrice,
 			OrderTime:    time.Unix(row.OrderTime, 0).Format("2006-01-02 15:04:05"),
+			Status:       row.Status,
 		})
 	}
 

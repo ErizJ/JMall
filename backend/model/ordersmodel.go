@@ -31,6 +31,7 @@ type (
 		FindAll(ctx context.Context) ([]*Orders, error)
 		FindByUserIdGrouped(ctx context.Context, userId int64) ([]int64, error)
 		FindAllWithDetails(ctx context.Context) ([]*OrderDetail, error)
+		UpdateStatusByOrderId(ctx context.Context, orderId int64, status int64) error
 	}
 
 	customOrdersModel struct {
@@ -104,7 +105,7 @@ func (m *customOrdersModel) FindByUserIdGrouped(ctx context.Context, userId int6
 }
 
 func (m *customOrdersModel) FindAllWithDetails(ctx context.Context) ([]*OrderDetail, error) {
-	query := `select o.id, o.order_id, o.user_id, o.product_id, o.product_num, o.product_price, o.order_time,
+	query := `select o.id, o.order_id, o.user_id, o.product_id, o.product_num, o.product_price, o.order_time, o.status,
 		u.user_name, p.product_name, COALESCE(p.product_picture, '') as product_picture
 		from orders o
 		join users u on o.user_id = u.user_id
@@ -116,4 +117,12 @@ func (m *customOrdersModel) FindAllWithDetails(ctx context.Context) ([]*OrderDet
 		return nil, err
 	}
 	return resp, nil
+}
+
+// UpdateStatusByOrderId 更新订单状态（支付回调联动用）
+// 0=待支付 1=已支付 2=已取消 3=已退款
+func (m *customOrdersModel) UpdateStatusByOrderId(ctx context.Context, orderId int64, status int64) error {
+	query := fmt.Sprintf("update %s set `status` = ? where `order_id` = ?", m.table)
+	_, err := m.conn.ExecCtx(ctx, query, status, orderId)
+	return err
 }

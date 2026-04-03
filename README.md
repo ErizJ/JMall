@@ -25,7 +25,10 @@
 - 数据库名：`storedb`
 - 默认账号：`root` / 密码：`root`（可在 yaml 配置文件中修改）
 - 字符集：`utf8mb4`
-- 初始化 SQL：`backend/model/sql/storeDB.sql`（含建表 + 种子数据）
+- 初始化 SQL：
+  - `backend/model/sql/storeDB.sql`（建表 + 种子数据）
+  - `backend/model/sql/payment.sql`（支付表 + orders 表 status 字段）
+- Docker 部署时两个 SQL 文件会按编号顺序自动执行
 
 ### Redis 配置
 
@@ -43,6 +46,7 @@
 | order-api | 8884 |
 | collect-api | 8885 |
 | management-api | 8886 |
+| payment-api | 8887 |
 | 前端（Nginx / Dev） | 8080 |
 
 ---
@@ -83,6 +87,7 @@ docker compose down -v       # 同时删除 MySQL / Redis 数据卷
 
 ```bash
 mysql -u root -p < backend/model/sql/storeDB.sql
+mysql -u root -p storedb < backend/model/sql/payment.sql
 ```
 
 ### 2. 启动所有后端服务
@@ -95,6 +100,7 @@ go run service/cart/cart.go       -f service/cart/etc/cart-api.yaml &
 go run service/order/order.go     -f service/order/etc/order-api.yaml &
 go run service/collect/collect.go -f service/collect/etc/collect-api.yaml &
 go run service/management/management.go -f service/management/etc/management-api.yaml &
+go run service/payment/payment.go -f service/payment/etc/payment-api.yaml &
 ```
 
 配置文件路径：`backend/service/<name>/etc/<name>-api.yaml`，可在其中修改数据库连接串和 Redis 地址。
@@ -143,7 +149,8 @@ JMall/
         ├── cart/              # 购物车服务
         ├── order/             # 订单服务
         ├── collect/           # 收藏服务
-        └── management/        # 管理后台服务
+        ├── management/        # 管理后台服务
+        └── payment/           # 支付服务（支付 / 回调 / 退款）
 ```
 
 ---
@@ -162,6 +169,14 @@ JMall/
 | order | `/orders/add` `/orders/get` `/orders/getDetail` `/orders/delete` | 是 |
 | collect | `/collect/add` `/collect/get` `/collect/delete` | 是 |
 | management | `/management/getAllOrders` `/management/getOrdersByUserName` `/management/getAllUsers` `/management/deleteUser` `/management/getAllProducts` `/management/getProductsByCategory` `/management/addProduct` `/management/updateProduct` `/management/deleteProduct` `/management/setCategoryHotZero` | 是（管理员） |
+| payment | `/payment/create` `/payment/status` `/payment/refund` `/payment/list` | 是 |
+| payment | `/payment/notify` `/payment/mock/pay` | 否 |
+
+---
+
+## 技术文档
+
+详细的业务流程、缓存策略、数据库交互细节见 [docs/technical.md](docs/technical.md)。
 
 ---
 

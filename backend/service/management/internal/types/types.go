@@ -108,6 +108,7 @@ type MgmtOrderItem struct {
 	ProductNum   int64   `json:"product_num"`
 	ProductPrice float64 `json:"product_price"`
 	OrderTime    string  `json:"order_time"`
+	Status       int64   `json:"status"` // 0=待支付 1=已支付 2=已取消 3=已退款
 }
 
 type MgmtProductItem struct {

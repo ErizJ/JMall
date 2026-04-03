@@ -15,7 +15,8 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./backend/model/sql/storeDB.sql:/docker-entrypoint-initdb.d/storeDB.sql:ro
+      - ./backend/model/sql/storeDB.sql:/docker-entrypoint-initdb.d/01-storeDB.sql:ro
+      - ./backend/model/sql/payment.sql:/docker-entrypoint-initdb.d/02-payment.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
       interval: 5s
@@ -152,6 +153,26 @@ services:
       redis:
         condition: service_healthy
 
+  payment:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: payment
+    container_name: jmall-payment
+    restart: unless-stopped
+    ports:
+      - "8887:8887"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+      PAYMENT_NOTIFY_URL: http://payment:8887/payment/notify
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # ─── 前端 ──────────────────────────────────────────────────
 
   frontend:
@@ -169,6 +190,7 @@ services:
       - order
       - collect
       - management
+      - payment
 
 volumes:
   mysql_data:

@@ -42,6 +42,11 @@ const router = createRouter({
       component: () => import('@/views/ConfirmOrder.vue'),
       meta: { requireAuth: true },
     },
+    {
+      path: '/payment',
+      component: () => import('@/views/Payment.vue'),
+      meta: { requireAuth: true },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/error' },
   ],
 })

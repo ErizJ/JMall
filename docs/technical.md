@@ -16,8 +16,9 @@
 8. [订单服务（order，端口 8884）](#8-订单服务)
 9. [收藏服务（collect，端口 8885）](#9-收藏服务)
 10. [管理服务（management，端口 8886）](#10-管理服务)
-11. [热度系统](#11-热度系统)
-12. [数据库表结构](#12-数据库表结构)
+11. [支付服务（payment，端口 8887）](#11-支付服务)
+12. [热度系统](#12-热度系统)
+13. [数据库表结构](#13-数据库表结构)
 
 ---
 
@@ -34,7 +35,8 @@
       ├─ /api/cart/*       → cart-api      :8883
       ├─ /api/orders/*     → order-api     :8884
       ├─ /api/collect/*    → collect-api   :8885
-      └─ /api/management/* → management-api :8886
+      ├─ /api/management/* → management-api :8886
+      └─ /api/payment/*   → payment-api   :8887
                   │
             ┌─────┴─────┐
             ▼           ▼
@@ -42,7 +44,7 @@
           (storedb)   (DB 0)
 ```
 
-**6 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
+**7 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
 
 ---
 
@@ -61,9 +63,11 @@
 | `category` | 商品分类 |
 | `combination_product` | 搭配购组合（满减规则） |
 | `shoppingcart` | 购物车 |
-| `orders` | 订单行项（一笔逻辑订单对应多行） |
+| `orders` | 订单行项（一笔逻辑订单对应多行，含 status 字段） |
 | `collect` | 收藏夹 |
 | `carousel` | 首页轮播图 |
+| `payment_order` | 支付单（支付流水） |
+| `payment_refund` | 退款单 |
 
 ### Redis
 
@@ -74,6 +78,8 @@
 func (c *Client) Set(ctx, key, value, ttl) error   // JSON 序列化后写入
 func (c *Client) Get(ctx, key, dest) error          // 读取并反序列化；redis.Nil 表示 miss
 func (c *Client) Del(ctx, keys...) error            // 删除一个或多个 key
+func (c *Client) SetNX(ctx, key, value, ttl) error  // 仅当 key 不存在时写入（幂等/分布式锁）
+func (c *Client) Eval(ctx, script, keys, args) (interface{}, error) // 执行 Lua 脚本（原子操作）
 ```
 
 ---
@@ -147,6 +153,13 @@ userID, err := ctxutil.UserIDFromCtx(l.ctx)
 | `jmall:product:phone:7` | 5 min | GetPhoneList | AddProduct、DeleteProduct、UpdateProduct、SetCategoryHotZero |
 | `jmall:product:shell:7` | 5 min | GetProtectingShellList | 同上 |
 | `jmall:product:charger:7` | 5 min | GetChargerList | 同上 |
+| `jmall:order:submit:{userId}` | 5 s | AddOrder（SETNX 防重复提交） | TTL 自动过期 |
+| `jmall:stock:{productId}` | 10 min | AddOrder（Lua 原子预扣库存） | 退款/取消/删除订单时清理 |
+| `jmall:order:expire:{orderId}` | 30 min | AddOrder（订单超时标记） | TTL 自动过期 |
+| `jmall:payment:lock:{orderId}` | 30 min | CreatePayment（SETNX 防重复支付） | 支付成功/失败/过期后清理 |
+| `jmall:payment:notify:{paymentNo}` | 24 h | PaymentNotify（SETNX 回调幂等锁） | 事务失败时清理允许重试 |
+| `jmall:payment:user:{userId}` | - | GetUserPayments | 支付/退款后清理 |
+| `jmall:refund:lock:{paymentNo}` | 30 s | Refund（SETNX 退款防重复提交） | 退款完成/失败后清理 |
 
 ---
 
@@ -542,50 +555,72 @@ Cache miss → ProductModel.FindTopHotByCategory(categoryId, limit=7)
 
 ### 8.1 创建订单 `POST /user/order/addOrder` 🔒
 
-这是整个项目中**唯一使用数据库事务**的接口。
-
 ```
 输入: { items: [{ productId, productNum, productPrice }] }
+注意: productPrice 由前端传入但服务端不信任，会用 DB 真实售价覆盖
 
 1. ctxutil.UserIDFromCtx → userId
 2. len(items) == 0 → code "002"
 
-3. 生成订单号（collision-resistant）
+3. 防重复提交（Redis SETNX）
+   key: jmall:order:submit:{userId}，TTL=5s
+   SETNX 失败 → code "012"（请勿重复提交）
+
+4. 服务端价格校验
+   ProductModel.FindByIds(所有 productId)
+   → 用 product.ProductSellingPrice 替代前端传的 productPrice
+   → len(products) != len(items) → code "013"（部分商品不存在）
+
+5. Redis 预扣库存（Lua 原子操作）
+   for each item:
+     key: jmall:stock:{productId}
+     Lua 脚本: GET → 比较 → DECRBY（原子执行）
+     返回 -1（key 不存在）→ 从 DB 加载库存到 Redis，重试一次
+     返回 0（库存不足）→ 回滚已扣减的商品 Redis 库存 → code "014"
+     返回 1（成功）→ 记录到 deductedProducts
+
+   Lua 脚本（为什么不用 GET + DECRBY 分开调用）：
+   GET + DECRBY 不是原子操作，高并发下两个请求同时 GET 到库存=1，
+   都认为够用，都去扣减，导致库存变成 -1（超卖）。
+   Lua 在 Redis 中是单线程原子执行的。
+
+6. 生成订单号
    orderId = time.Now().UnixMilli() * 1000 + rand.Intn(1000)
-   （毫秒时间戳 * 1000 + 3位随机数，永不溢出 int64）
 
-4. 开启数据库事务 ────────────────────────────────────────┐
-   OrdersModel.TransactCtx(ctx, func(ctx, session) error { │
-                                                            │
-     txOrders = OrdersModel.WithSession(session)           │
-     txCart   = ShoppingcartModel.WithSession(session)     │
-                                                            │
-     for each item in items:                               │
+7. 数据库事务 ────────────────────────────────────────────┐
+   OrdersModel.TransactCtx(ctx, func(ctx, session) {     │
+     txOrders  = OrdersModel.WithSession(session)         │
+     txCart    = ShoppingcartModel.WithSession(session)    │
+     txProduct = ProductModel.WithSession(session)         │
+                                                           │
+     for each item:                                        │
        txOrders.Insert(&Orders{                            │
-         OrderId:      orderId,                            │
-         UserId:       userId,                             │
-         ProductId:    item.ProductId,                     │
-         ProductNum:   item.ProductNum,                    │
-         ProductPrice: item.ProductPrice,                  │
-         OrderTime:    time.Now(),                         │
+         OrderId, UserId, ProductId, ProductNum,           │
+         ProductPrice: 服务端真实价格,                      │
+         OrderTime, Status: 0（待支付）                    │
        })                                                  │
-       任意 Insert 失败 → 事务回滚                         │
-                                                            │
-     for each item in items:                               │
-       txCart.DeleteByUserAndProduct(userId, item.ProductId)│
-       任意 Delete 失败 → 事务回滚                         │
-                                                            │
-     return nil → 事务提交                                 │
-   })  ─────────────────────────────────────────────────────┘
+       txProduct.DecrStock(productId, num)                 │
+         SQL: UPDATE product SET product_num =             │
+              product_num - ? WHERE product_id = ?         │
+              AND product_num >= ?                          │
+         （WHERE product_num >= ? 防止超卖）               │
+                                                           │
+     for each item:                                        │
+       txCart.DeleteByUserAndProduct(userId, productId)     │
+                                                           │
+   })  ──────────────────────────────────────────────────── ┘
+   事务失败 → rollbackStock（Lua INCRBY 回滚 Redis 库存）
 
-5. 事务成功后：
-   Cache.Del("jmall:orders:user:{userId}")
-   Cache.Del("jmall:cart:user:{userId}")
+8. 设置订单超时标记
+   key: jmall:order:expire:{orderId}，TTL=30min
+   （配合定时任务关闭超时未支付订单）
 
-6. 返回 { code: "200", order_id: orderId }
+9. Cache.Del("jmall:orders:user:{userId}", "jmall:cart:user:{userId}")
+
+10. 返回 { code: "200", order_id: orderId }
 ```
 
-> **事务保证**：若 5 个商品中第 3 个插入失败，前 2 个自动回滚，不会产生残缺订单。购物车清理同在同一事务中，不会出现"订单创建成功但购物车未清空"的情况。
+> **双重库存保障**：Redis Lua 是快速拦截层（高并发下不打 DB），DB `WHERE product_num >= ?` 是最终一致性保障（即使 Redis 数据丢失也不会超卖）。事务失败时 Redis 库存自动回滚。
 
 ### 8.2 查看我的订单列表 `POST /user/order/getOrder` 🔒
 
@@ -596,27 +631,21 @@ Cache miss → ProductModel.FindTopHotByCategory(categoryId, limit=7)
    hit  → 返回缓存
    miss → 继续
 
-3. OrdersModel.FindByUserIdGrouped(userId)
-   SQL: SELECT DISTINCT order_id FROM orders WHERE user_id=? ORDER BY order_id DESC
-   → 得到有序 order_id 列表
+3. OrdersModel.FindByUserId(userId)
+   SQL: SELECT ... FROM orders WHERE user_id=? ORDER BY order_time DESC
 
-4. 对每个 order_id：
-   OrdersModel.FindByOrderId(orderId)
-   SQL: SELECT ... FROM orders WHERE order_id=?
-   → 该订单的所有行项
-
-5. 收集所有 productId → 批量查询
+4. 收集所有 productId → 批量查询
    ProductModel.FindByIds(allProductIds)
    → 构建 productMap
 
-6. 组装响应
+5. 组装响应
    for each order row:
      OrderItem{ id, orderId, userId, productId, productName,
                 productImg, productNum, productPrice,
-                orderTime("2006-01-02 15:04:05") }
+                orderTime("2006-01-02 15:04:05"), status }
 
-7. 写入缓存（TTL 2 min）
-8. 返回 []OrderItem（按 order_id 倒序）
+6. 写入缓存（TTL 2 min）
+7. 返回 []OrderItem
 ```
 
 ### 8.3 订单详情 `POST /order/getDetails` 🔒
@@ -624,17 +653,10 @@ Cache miss → ProductModel.FindTopHotByCategory(categoryId, limit=7)
 ```
 输入: { orderId }
 
-1. ctxutil.UserIDFromCtx → userId（用于权限隐式验证）
-
-2. OrdersModel.FindByOrderId(orderId)
-   SQL: SELECT ... FROM orders WHERE order_id=?
-   → 所有行项（无缓存，实时查询）
-
-3. 收集 productId → ProductModel.FindByIds(productIds)
-
-4. 组装 []OrderItem（与 GetOrder 相同结构）
-
-5. 返回订单详情列表
+1. OrdersModel.FindByOrderId(orderId)
+2. 收集 productId → ProductModel.FindByIds(productIds)
+3. 组装 []OrderItem（含 status 字段）
+4. 返回订单详情列表
 ```
 
 ### 8.4 删除订单 `POST /order/deleteOrderById` 🔒
@@ -648,15 +670,32 @@ Cache miss → ProductModel.FindTopHotByCategory(categoryId, limit=7)
    - 无记录 → code "002"
 
 3. 权限检查
-   rows[0].UserId != userId → 返回 error("forbidden")
-   （防止 A 用户删除 B 用户的订单）
+   rows[0].UserId != userId → error("forbidden")
 
-4. OrdersModel.DeleteByOrderId(orderId)
-   SQL: DELETE FROM orders WHERE order_id=?
+4. 状态检查
+   status == 1（已支付）→ code "005"（需先退款）
 
-5. Cache.Del("jmall:orders:user:{userId}")
+5. 库存回滚（仅待支付订单）
+   status == 0 → 事务内：
+     for each item: ProductModel.IncrStock(productId, num)
+     OrdersModel.DeleteByOrderId(orderId)
+     → 清理 Redis 库存缓存 jmall:stock:{productId}
+     → 清理支付防重锁 jmall:payment:lock:{orderId}
 
-6. 返回 { code: "200" }
+   status == 2 或 3 → 直接删除（库存已在取消/退款时回滚）
+
+6. Cache.Del("jmall:orders:user:{userId}")
+7. 返回 { code: "200" }
+```
+
+### 8.5 订单状态流转
+
+```
+0 待支付 ──支付成功──→ 1 已支付 ──退款──→ 3 已退款
+   │                      │
+   ├──支付失败/过期──→ 2 已取消    └──→ (不可删除，需先退款)
+   │
+   └──用户删除──→ (回滚库存后删除)
 ```
 
 ---
@@ -904,7 +943,202 @@ SQL: UPDATE category SET category_hot = 0
 
 ---
 
-## 11. 热度系统
+## 11. 支付服务
+
+支付服务管理完整的支付生命周期：创建支付单 → 渠道下单 → 回调/确认 → 订单联动 → 退款。
+
+### 11.1 渠道抽象（Strategy 模式）
+
+```go
+type PayChannel interface {
+    Name() string
+    CreatePayment(ctx, req) (*PayResponse, error)
+    QueryPayment(ctx, paymentNo) (success, tradeNo, error)
+    Refund(ctx, req) (*RefundResponse, error)
+    VerifyNotify(ctx, params) (bool, error)
+}
+```
+
+```
+channel.Registry（全局注册中心）
+├── "mock"    → MockChannel（init() 自动注册，开发测试用）
+├── "wechat"  → TODO: WechatChannel
+└── "alipay"  → TODO: AlipayChannel
+```
+
+业务逻辑通过 `channel.Get(name)` 获取实例，完全不感知具体渠道。新增渠道只需实现接口 + `init()` 注册，logic 层零改动。
+
+### 11.2 创建支付单 `POST /payment/create` 🔒
+
+```
+输入: { order_id, channel }
+
+1. ctxutil.UserIDFromCtx → userId
+
+2. channel.Get(req.Channel)
+   不存在 → code "002"
+
+3. OrdersModel.FindByOrderId(orderId)
+   不存在 → code "003"
+
+4. 校验归属
+   orderItems[0].UserId != userId → code "004"
+
+5. 校验订单状态
+   status != 0（待支付）→ code "011"
+
+6. 防重复支付（Redis SETNX）
+   key: jmall:payment:lock:{orderId}，TTL=支付过期时间（默认 30min）
+   SETNX 失败 → code "005"
+
+7. 计算金额
+   sum(item.ProductPrice * item.ProductNum) → 转为分（int64）
+
+8. 生成支付流水号
+   paymentNo = "PAY" + UnixMilli + 3位随机数
+
+9. 调用渠道预下单
+   channel.CreatePayment(paymentNo, orderId, amount, notifyUrl)
+   失败 → 释放 Redis 锁 → code "006"
+
+10. 写入 payment_order 表
+    失败 → 释放 Redis 锁
+
+11. 返回 { code: "200", payment_no, pay_url }
+```
+
+### 11.3 支付回调 `POST /payment/notify`（无需鉴权）
+
+```
+输入: { payment_no, channel_trade_no, status, amount, paid_time, sign }
+
+安全校验：
+  1. 渠道验签 channel.VerifyNotify() → 防伪造回调
+  2. 金额校验 req.Amount == payment.Amount → 防金额篡改
+
+三层幂等保障：
+  第一层: Redis SETNX jmall:payment:notify:{paymentNo} TTL=24h
+         → O(1) 快速拦截重复回调
+  第二层: SQL UPDATE ... WHERE status IN (0, 1)
+         → 已成功的单不会被重复更新
+  第三层: MySQL 事务
+         → 支付单 + 订单原子更新
+
+支付成功流程：
+  1. Redis SETNX 幂等锁
+     已存在 → 直接返回 200
+  2. 查询支付单 → 终态检查
+  3. 渠道验签 + 金额校验
+  4. 过期检查 → 过期则关闭支付单 + 取消订单 + 回滚库存
+  5. 事务 {
+       UPDATE payment_order SET status=2 WHERE status IN (0,1)
+       UPDATE orders SET status=1
+     }
+     失败 → 删除幂等锁（允许渠道重试）
+  6. 清理 jmall:payment:lock:{orderId} + 用户缓存
+
+支付失败流程：
+  1. 更新支付单 status=3（失败）
+  2. 事务 {
+       UPDATE orders SET status=2（已取消）
+       UPDATE product SET product_num = product_num + ?（回滚库存）
+     }
+  3. 清理 Redis 库存缓存 jmall:stock:{productId}
+  4. 清理防重锁 + 用户缓存
+```
+
+> **为什么 Redis + DB 双重幂等？** Redis SETNX 是第一道防线，微信/支付宝短时间内可能重试多次回调，Redis O(1) 快速拦截。但 Redis 非持久化，宕机恢复后 key 可能丢失，DB 的 `WHERE status IN (0,1)` 是最终一致性保障。
+
+### 11.4 Mock 支付确认 `POST /payment/mock/pay`（无需鉴权）
+
+```
+输入: { payment_no }
+
+模拟用户在第三方支付页面完成支付。
+内部走和真实回调完全相同的逻辑：
+  幂等检查 → 状态校验 → 过期检查（含库存回滚）
+  → 事务更新 → 清理锁和缓存
+
+与 PaymentNotify 的区别：跳过验签和金额校验（Mock 渠道不需要）。
+```
+
+### 11.5 查询支付状态 `POST /payment/status` 🔒
+
+```
+输入: { payment_no }
+
+PaymentOrderModel.FindByPaymentNo(paymentNo)
+→ 返回 { paymentNo, orderId, amount, channel, status, paidTime }
+```
+
+### 11.6 用户支付记录 `POST /payment/list` 🔒
+
+```
+输入: { user_id }（实际从 JWT context 取 userId）
+
+PaymentOrderModel.FindByUserId(userId)
+→ 返回 []PaymentItem{ paymentNo, orderId, amount, channel, status, createdAt }
+```
+
+### 11.7 退款 `POST /payment/refund` 🔒
+
+```
+输入: { payment_no, refund_amount, reason }
+
+1. 查询支付单 + 校验归属
+
+2. 校验状态
+   status != PaymentStatusSuccess → code "008"
+
+3. 退款幂等（Redis SETNX）
+   key: jmall:refund:lock:{paymentNo}，TTL=30s
+   SETNX 失败 → code "016"
+
+4. 校验退款金额
+   amount <= 0 || amount > payment.Amount → 清锁 → code "009"
+
+5. 调用渠道退款
+   channel.Refund() → 失败则清锁 → code "010"
+
+6. 事务 {
+     INSERT payment_refund（退款单）
+     UPDATE payment_order SET status=5（已退款）
+     UPDATE orders SET status=3（已退款）
+     for each orderItem:
+       UPDATE product SET product_num = product_num + ?（回滚库存）
+   }
+   失败 → 清锁
+
+7. 清理缓存
+   jmall:orders:user:{userId}
+   jmall:payment:user:{userId}
+   jmall:refund:lock:{paymentNo}
+   jmall:stock:{productId}（每个涉及商品）
+
+8. 返回 { code: "200", refund_no }
+```
+
+> **所有失败路径都会清理退款幂等锁**，确保用户可以重试。
+
+### 11.8 从 Mock 升级到真实支付
+
+微信支付：
+1. 申请商户号 → 获取 AppID、MchID、APIKey、证书
+2. 实现 `WechatChannel`（模板在 `channel/wechat.go`）
+3. 推荐 SDK：`github.com/wechatpay-apiv3/wechatpay-go`
+4. `init()` 中注册 → 前端传 `channel: "wechat"` 即可
+
+支付宝：
+1. 开放平台创建应用 → 获取 AppID、私钥、支付宝公钥
+2. 实现 `AlipayChannel`（模板在 `channel/alipay.go`）
+3. 推荐 SDK：`github.com/smartwalle/alipay/v3`
+4. `init()` 中注册 → 前端传 `channel: "alipay"` 即可
+
+**业务逻辑层（logic/）完全不需要改动。**
+
+---
+
+## 12. 热度系统
 
 ### 热度来源
 
@@ -930,7 +1164,7 @@ AddCollect（首次）   → CategoryHot+1, ProductHot+1
 
 ---
 
-## 12. 数据库表结构
+## 13. 数据库表结构
 
 ### users
 
@@ -986,8 +1220,9 @@ AddCollect（首次）   → CategoryHot+1, ProductHot+1
 | `user_id` | INT | 外键 → users |
 | `product_id` | INT | 外键 → product |
 | `product_num` | INT | 购买数量 |
-| `product_price` | DECIMAL | 下单时价格快照 |
-| `order_time` | DATETIME | 下单时间 |
+| `product_price` | DECIMAL | 下单时价格快照（服务端校验后写入） |
+| `order_time` | BIGINT | 下单时间（unix 秒） |
+| `status` | TINYINT DEFAULT 0 | 0=待支付 1=已支付 2=已取消 3=已退款 |
 
 ### shoppingcart
 
@@ -1018,3 +1253,43 @@ AddCollect（首次）   → CategoryHot+1, ProductHot+1
 | `amount_threshold` | INT NULL | 满 N 件触发 |
 | `price_reduction_range` | INT NULL | 减 M 元 |
 
+
+### payment_order
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | BIGINT AUTO_INCREMENT | 主键 |
+| `payment_no` | VARCHAR(64) UNIQUE | 支付流水号（全局唯一，对外交互用） |
+| `order_id` | BIGINT | 关联业务订单 ID |
+| `user_id` | BIGINT | 用户 ID |
+| `amount` | BIGINT | 支付金额（单位：分，避免浮点精度问题） |
+| `channel` | VARCHAR(32) | 支付渠道：mock / wechat / alipay |
+| `channel_trade_no` | VARCHAR(128) | 第三方交易号（回调时回填） |
+| `status` | TINYINT DEFAULT 0 | 0=待支付 1=支付中 2=成功 3=失败 4=已关闭 5=已退款 |
+| `expire_time` | BIGINT | 支付过期时间（unix 秒） |
+| `paid_time` | BIGINT | 实际支付时间（unix 秒） |
+| `notify_url` | VARCHAR(256) | 回调通知 URL |
+| `extra` | TEXT | 扩展字段（JSON） |
+| `created_at` | BIGINT | 创建时间 |
+| `updated_at` | BIGINT | 更新时间 |
+
+索引：`uk_payment_no`（唯一）、`idx_order_id`、`idx_user_id`、`idx_status`、`idx_expire_time`
+
+### payment_refund
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | BIGINT AUTO_INCREMENT | 主键 |
+| `refund_no` | VARCHAR(64) UNIQUE | 退款流水号 |
+| `payment_no` | VARCHAR(64) | 关联支付流水号 |
+| `order_id` | BIGINT | 关联订单 ID |
+| `user_id` | BIGINT | 用户 ID |
+| `refund_amount` | BIGINT | 退款金额（分） |
+| `reason` | VARCHAR(256) | 退款原因 |
+| `channel` | VARCHAR(32) | 退款渠道 |
+| `channel_refund_no` | VARCHAR(128) | 第三方退款单号 |
+| `status` | TINYINT DEFAULT 0 | 0=退款中 1=退款成功 2=退款失败 |
+| `created_at` | BIGINT | 创建时间 |
+| `updated_at` | BIGINT | 更新时间 |
+
+索引：`uk_refund_no`（唯一）、`idx_payment_no`、`idx_order_id`
