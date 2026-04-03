@@ -21,6 +21,7 @@
 13. [数据库表结构](#13-数据库表结构)
 14. [AI 智能助手服务（aichat，端口 8888）](#14-ai-智能助手服务)
 15. [智能凑单推荐服务（recommendation，端口 8889）](#15-智能凑单推荐服务)
+16. [猜你喜欢推荐系统](#16-猜你喜欢推荐系统)
 
 ---
 
@@ -48,7 +49,7 @@
           (storedb)   (DB 0)    (ark.cn-beijing.volces.com)
 ```
 
-**9 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。其中 aichat 服务额外对接豆包大模型 API，通过 MCP 工具协议查询数据库后由大模型生成自然语言回复。recommendation 服务提供智能凑满减推荐功能。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
+**9 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。其中 aichat 服务额外对接豆包大模型 API，通过 MCP 工具协议查询数据库后由大模型生成自然语言回复。recommendation 服务提供智能凑满减推荐和猜你喜欢个性化推荐功能。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
 
 ---
 
@@ -72,6 +73,8 @@
 | `carousel` | 首页轮播图 |
 | `payment_order` | 支付单（支付流水） |
 | `payment_refund` | 退款单 |
+| `user_behavior` | 用户行为日志（浏览/点击/加购/购买/收藏） |
+| `product_similarity` | 商品相似度（ItemCF 离线计算结果） |
 
 ### Redis
 
@@ -159,6 +162,7 @@ userID, err := ctxutil.UserIDFromCtx(l.ctx)
 | `jmall:product:charger:7` | 5 min | GetChargerList | 同上 |
 | `jmall:order:submit:{userId}` | 5 s | AddOrder（SETNX 防重复提交） | TTL 自动过期 |
 | `jmall:recommend:fillup:{userId}:{totalHash}` | 2 min | FillUp（凑单推荐） | 购物车变更时自动过期（TTL） |
+| `jmall:recommend:guess:{userId}:{page}` | 3 min | GuessYouLike（猜你喜欢） | TTL 自动过期 |
 | `jmall:stock:{productId}` | 10 min | AddOrder（Lua 原子预扣库存） | 退款/取消/删除订单时清理 |
 | `jmall:order:expire:{orderId}` | 30 min | AddOrder（订单超时标记） | TTL 自动过期 |
 | `jmall:payment:lock:{orderId}` | 30 min | CreatePayment（SETNX 防重复支付） | 支付成功/失败/过期后清理 |
@@ -1904,9 +1908,14 @@ backend/service/recommendation/
     │   └── config.go                          # 配置结构体
     ├── handler/
     │   ├── routes.go                          # 路由注册（含 AuthMiddleware）
-    │   └── filluphandler.go                   # HTTP Handler
+    │   ├── filluphandler.go                   # 凑单推荐 Handler
+    │   ├── guessyoulikehandler.go             # 猜你喜欢 Handler
+    │   └── reportbehaviorhandler.go           # 行为上报 Handler
     ├── logic/
-    │   └── filluplogic.go                     # 核心推荐算法（3 策略 + 评分排序）
+    │   ├── filluplogic.go                     # 凑单推荐算法（3 策略 + 评分排序）
+    │   ├── guessyoulikelogic.go               # 猜你喜欢推荐引擎（4 路召回 + 排序 + 重排）
+    │   ├── reportbehaviorlogic.go             # 用户行为上报
+    │   └── itemcf.go                          # ItemCF 离线计算引擎
     ├── middleware/
     │   └── authmiddleware.go                  # JWT 认证中间件
     ├── svc/
@@ -1924,14 +1933,16 @@ type ServiceContext struct {
     AuthMiddleware          rest.Middleware
     ProductModel            model.ProductModel            // 商品查询（含新增的价格区间、分类批量查询）
     ShoppingcartModel       model.ShoppingcartModel       // 购物车查询
-    OrdersModel             model.OrdersModel             // 订单历史（预留个性化推荐）
-    CollectModel            model.CollectModel            // 收藏记录（预留个性化推荐）
+    OrdersModel             model.OrdersModel             // 订单历史
+    CollectModel            model.CollectModel            // 收藏记录
     CombinationProductModel model.CombinationProductModel // 搭配购组合 / 满减规则
     CategoryModel           model.CategoryModel           // 商品分类
+    UserBehaviorModel       model.UserBehaviorModel       // 用户行为日志（猜你喜欢）
+    ProductSimilarityModel  model.ProductSimilarityModel  // 商品相似度（ItemCF）
 }
 ```
 
-> 注入了 6 个 Model，其中 `OrdersModel` 和 `CollectModel` 为个性化推荐预留，当前版本暂未使用。
+> 注入了 8 个 Model。`UserBehaviorModel` 和 `ProductSimilarityModel` 是猜你喜欢推荐系统新增的，分别用于用户行为采集和 ItemCF 相似度查询。
 
 ### 15.4 API 接口
 
@@ -2527,3 +2538,637 @@ if userID % 2 == 0 {
 | 策略转化率 | 各策略被采纳次数 / 各策略展示次数 | 对比优化 |
 | 满减达成率 | 凑单后达到满减的用户数 / 看到推荐的用户数 | > 30% |
 | 客单价提升 | 有推荐的订单均价 - 无推荐的订单均价 | 正向提升 |
+
+---
+
+## 16. 猜你喜欢推荐系统
+
+猜你喜欢是首页底部的个性化推荐模块，参考淘宝/京东/拼多多的主流实现方式，采用工业级的"多路召回 → 排序 → 重排"三层流水线架构。系统通过采集用户的浏览、点击、加购、购买、收藏等行为数据，结合协同过滤算法和热度模型，为每个用户生成个性化的商品推荐列表。
+
+### 16.1 整体架构
+
+```
+首页 Home.vue
+    │
+    └── <GuessYouLike /> 组件（瀑布流 + 无限滚动）
+            │
+            ├─ POST /api/recommend/guessYouLike    → 获取推荐列表
+            └─ POST /api/recommend/reportBehavior   → 上报点击行为
+            │
+            ▼ (Nginx/DevServer proxy rewrite: /api → /)
+    recommendation-api :8889
+            │
+            ▼
+    AuthMiddleware（JWT 验证）
+            │
+            ▼
+    GuessYouLikeLogic.GuessYouLike()
+            │
+            ├─ 1. Cache.Get()                              → 尝试读缓存（3min TTL）
+            │
+            ├─ 2. 用户画像构建
+            │     ├─ UserBehaviorModel.FindUserProductBehaviors()   → 行为加权评分
+            │     ├─ UserBehaviorModel.FindUserPreferredCategories() → 偏好分类
+            │     └─ UserBehaviorModel.FindRecentProductIds()        → 已交互商品
+            │
+            ├─ 3. 多路召回（Recall Layer）
+            │     ├─ recallByUserPreference()              → 用户偏好召回
+            │     ├─ recallByItemCF()                      → ItemCF 召回
+            │     ├─ recallByUserCF()                      → UserCF 召回
+            │     └─ recallByHotSelling()                  → 热门兜底召回
+            │
+            ├─ 4. 排序层（Rank Layer）
+            │     └─ rank()                                → 综合评分排序
+            │
+            ├─ 5. 重排层（Re-rank Layer）
+            │     └─ rerank()                              → 分类打散 + 分页
+            │
+            ├─ 6. fillProductDetails()                     → 填充商品详情
+            ├─ 7. Cache.Set()                              → 写缓存（TTL 3min）
+            │
+            ▼
+    JSON Response → 前端瀑布流渲染
+```
+
+### 16.2 数据流：从用户行为到推荐结果
+
+```
+用户行为采集                          离线计算                        在线推荐
+─────────────                    ──────────                    ──────────
+浏览商品详情 ─┐                                                
+点击推荐商品 ─┤                                                
+加入购物车   ─┼─→ POST /recommend/reportBehavior               
+购买商品     ─┤       │                                        
+收藏商品     ─┘       ▼                                        
+                 user_behavior 表                              
+                      │                                        
+                      ├──────────→ ItemCF 离线计算（定时任务）  
+                      │               │                        
+                      │               ▼                        
+                      │          product_similarity 表         
+                      │               │                        
+                      └───────────────┼──→ 多路召回            
+                                      │       │                
+                                      │       ▼                
+                                      │    排序 → 重排         
+                                      │       │                
+                                      │       ▼                
+                                      │    Redis 缓存 3min     
+                                      │       │                
+                                      └───────┼──→ 推荐结果    
+```
+
+#### 行为类型与权重
+
+| 行为类型 | 编码 | 权重 | 说明 |
+|---------|------|------|------|
+| 浏览 | 1 | 1.0 | 用户打开商品详情页时自动上报 |
+| 点击 | 2 | 2.0 | 用户点击推荐列表中的商品时上报 |
+| 加购 | 3 | 3.0 | 加入购物车时上报 |
+| 收藏 | 5 | 4.0 | 收藏商品时上报 |
+| 购买 | 4 | 5.0 | 下单成功时上报 |
+
+权重越高表示用户对该商品的兴趣越强。购买权重最高（5.0），因为这是最强的正向信号。
+
+### 16.3 API 接口
+
+#### 16.3.1 猜你喜欢 `POST /recommend/guessYouLike` 🔒
+
+```
+输入: { page: 1, page_size: 20 }
+  - page: 页码，默认 1
+  - page_size: 每页数量，默认 20，最大 50
+
+输出:
+{
+  "code": "200",
+  "recommendations": [
+    {
+      "product_id": 9,
+      "product_name": "小米电视4A 32英寸",
+      "category_id": 2,
+      "product_title": "人工智能系统，高清液晶屏",
+      "product_picture": "public/imgs/appliance/MiTv-4A-32.png",
+      "product_price": 799,
+      "product_selling_price": 799,
+      "product_sales": 0,
+      "product_hot": 91,
+      "recommend_reason": "猜你喜欢",
+      "score": 82.35
+    }
+  ],
+  "has_more": true
+}
+```
+
+#### 16.3.2 上报用户行为 `POST /recommend/reportBehavior` 🔒
+
+```
+输入: {
+  product_id: 1,
+  category_id: 1,
+  behavior_type: 1    // 1=浏览 2=点击 3=加购 4=购买 5=收藏
+}
+
+输出: { "code": "200" }
+```
+
+行为上报是异步的，即使写入失败也返回成功，不影响用户体验。前端在以下时机自动上报：
+- 打开商品详情页 → 上报浏览（behavior_type=1）
+- 点击推荐列表中的商品 → 上报点击（behavior_type=2）
+
+### 16.4 四路召回策略（Recall Layer）
+
+召回层的目标是从全量商品中快速筛选出用户可能感兴趣的候选集。四种策略并行执行，各自返回带基础分的候选商品列表。
+
+#### 策略 1：用户偏好召回（recallByUserPreference）
+
+**原理**：根据用户近 30 天的行为数据，计算用户偏好的商品分类，推荐该分类下热度最高的商品。
+
+```
+1. UserBehaviorModel.FindUserPreferredCategories(userId, 30天, limit=5)
+   SQL: SELECT category_id FROM user_behavior
+        WHERE user_id=? AND behavior_time > ?
+        GROUP BY category_id
+        ORDER BY SUM(行为权重) DESC
+        LIMIT 5
+
+2. ProductModel.FindByCategoryIds(偏好分类, 排除已交互商品, limit=30)
+
+3. 基础分 = 80 + product_hot × 0.5
+   推荐理由 = "猜你喜欢"
+```
+
+**适用场景**：有行为数据的老用户。如果用户最近频繁浏览手机，就推荐手机分类下的热门商品。
+
+#### 策略 2：ItemCF 召回（recallByItemCF）
+
+**原理**：基于商品相似度表（离线计算），找到用户最近交互过的商品的相似商品。核心假设是"喜欢商品 A 的用户也可能喜欢与 A 相似的商品 B"。
+
+```
+1. 取用户最近交互的前 10 个商品作为种子
+
+2. ProductSimilarityModel.FindSimilarProductsByIds(种子商品, limit=30)
+   SQL: SELECT * FROM product_similarity
+        WHERE product_id IN (种子商品)
+        ORDER BY score DESC
+        LIMIT 30
+
+3. 基础分 = 70 + similarity_score × 30
+   推荐理由 = "相似商品推荐"
+```
+
+**适用场景**：有行为数据 + product_similarity 表有数据（需要离线计算）。
+
+#### 策略 3：UserCF 召回（recallByUserCF）
+
+**原理**：找到与当前用户行为相似的其他用户（共同交互商品数最多），推荐这些相似用户喜欢但当前用户没看过的商品。核心假设是"行为相似的用户有相似的偏好"。
+
+```
+1. UserBehaviorModel.FindSimilarUsers(userId, 30天, limit=10)
+   SQL: SELECT b2.user_id
+        FROM user_behavior b1
+        JOIN user_behavior b2 ON b1.product_id = b2.product_id
+             AND b2.user_id != b1.user_id
+        WHERE b1.user_id=? AND b1.behavior_time > ? AND b2.behavior_time > ?
+        GROUP BY b2.user_id
+        ORDER BY COUNT(DISTINCT b1.product_id) DESC
+        LIMIT 10
+
+2. UserBehaviorModel.FindProductsByUsers(相似用户, 排除已交互商品, 30天, limit=30)
+
+3. 基础分 = 60 + 行为权重 × 5
+   推荐理由 = "和你口味相似的人也在看"
+```
+
+**适用场景**：有行为数据且系统中有足够多的用户行为交叉。
+
+#### 策略 4：热门兜底召回（recallByHotSelling）
+
+**原理**：全站热销商品 Top N，利用从众心理。这是冷启动的兜底策略，保证任何用户都能看到推荐内容。
+
+```
+1. ProductModel.FindTopHot(limit=30)
+   SQL: SELECT ... FROM product ORDER BY product_hot DESC LIMIT 30
+
+2. 排除已交互商品 + 库存为 0 的商品
+
+3. 基础分 = 40 + product_hot × 0.3
+   推荐理由 = "热门推荐"
+```
+
+**适用场景**：所有用户（新用户冷启动时只有这一路召回有结果）。
+
+#### 四路召回优先级对比
+
+| 策略 | 基础分范围 | 数据依赖 | 冷启动可用 |
+|------|-----------|---------|-----------|
+| 用户偏好召回 | 80+ | user_behavior 表 | ✗ |
+| ItemCF 召回 | 70–100 | user_behavior + product_similarity | ✗ |
+| UserCF 召回 | 60–85 | user_behavior（多用户交叉） | ✗ |
+| 热门兜底 | 40–70 | product.product_hot | ✓ |
+
+### 16.5 排序层（Rank Layer）
+
+排序层对召回层返回的所有候选商品进行统一评分和排序。
+
+#### 去重
+
+同一商品可能被多个召回策略命中（如一个商品既是用户偏好分类下的热门，又出现在 ItemCF 结果中）。去重规则：保留分数最高的那个候选。
+
+#### 综合评分公式
+
+```
+finalScore = strategyScore × 0.3
+           + preferenceScore × 0.3
+           + hotScore × 0.2
+           + diversityScore × 0.2
+```
+
+| 维度 | 权重 | 计算方式 | 含义 |
+|------|------|---------|------|
+| 策略基础分 | 30% | 各召回策略赋予的原始分数（上限 100） | 召回来源的可信度 |
+| 用户偏好匹配分 | 30% | 商品分类在用户偏好中 → 80 分；用户对该商品有历史行为 → 额外加分 | 个性化程度 |
+| 热度分 | 20% | product_hot 归一化到 0–100（相对于候选池最高热度） | 大众认可度 |
+| 多样性分 | 20% | 随机扰动 0–30 | 增加推荐多样性，避免每次结果完全相同 |
+
+#### 偏好匹配分计算
+
+```
+preferenceScore = 0
+
+if 商品分类 ∈ 用户偏好分类集合:
+    preferenceScore = 80
+
+if 用户对该商品有历史行为:
+    preferenceScore += min(行为评分 × 5, 20)
+```
+
+### 16.6 重排层（Re-rank Layer）
+
+重排层对排序后的结果进行最终调整，提升推荐列表的多样性和用户体验。
+
+#### 分类打散算法
+
+**目标**：避免推荐列表中连续出现同一分类的商品（如连续 5 个手机），提升视觉多样性。
+
+**规则**：同一分类的商品不连续超过 2 个。
+
+```
+算法（三轮扫描）：
+
+第 1 轮（严格打散）：
+  遍历排序后的候选列表
+  if 当前商品分类 == 上一个商品分类 && 连续计数 >= 2:
+    跳过（留到下一轮）
+  else:
+    加入结果列表
+
+第 2 轮（放宽限制）：
+  遍历未被选中的商品，不限制连续数量
+
+第 3 轮（兜底）：
+  确保所有商品都能入选
+```
+
+#### 分页
+
+```
+start = (page - 1) × pageSize
+end = start + pageSize
+hasMore = end < len(reranked)
+result = reranked[start:end]
+```
+
+### 16.7 ItemCF 离线计算引擎
+
+ItemCF（Item-based Collaborative Filtering）是推荐系统中最经典的协同过滤算法之一。核心思想：如果两个商品被很多相同用户交互过，则它们相似。
+
+#### 算法：余弦相似度
+
+```
+sim(A, B) = |users(A) ∩ users(B)| / sqrt(|users(A)| × |users(B)|)
+```
+
+其中 `users(A)` 是近 30 天内与商品 A 有过交互的用户集合。
+
+#### 计算流程
+
+```
+ComputeItemCF(ctx, svcCtx)
+    │
+    ├─ 1. ProductModel.FindAll() → 获取所有商品
+    │
+    ├─ 2. 构建倒排索引
+    │     for each product:
+    │       UserBehaviorModel.FindUsersByProduct(productId, 30天)
+    │       productUsers[productId] = {userId1, userId2, ...}
+    │
+    ├─ 3. 两两计算余弦相似度
+    │     for i in range(products):
+    │       for j in range(i+1, products):
+    │         intersection = |productUsers[i] ∩ productUsers[j]|
+    │         if intersection == 0: continue
+    │         sim = intersection / sqrt(|users_i| × |users_j|)
+    │         → 双向写入 (i→j, j→i)
+    │
+    ├─ 4. 批量写入 product_similarity 表
+    │     BatchUpsert（每 100 条一批）
+    │     INSERT ... ON DUPLICATE KEY UPDATE
+    │
+    └─ 5. 日志记录处理的商品数量
+```
+
+#### 调度方式
+
+- 定时任务（推荐）：每天凌晨 2:00 执行一次
+- 管理后台手动触发：可扩展一个管理接口调用 `ComputeItemCF()`
+- 首次部署：手动执行一次初始化相似度数据
+
+### 16.8 数据库表结构
+
+#### user_behavior（用户行为日志）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | BIGINT AUTO_INCREMENT | 主键 |
+| `user_id` | INT | 用户 ID |
+| `product_id` | INT | 商品 ID |
+| `category_id` | INT | 商品分类 ID（冗余存储，避免 JOIN） |
+| `behavior_type` | TINYINT | 1=浏览 2=点击 3=加购 4=购买 5=收藏 |
+| `behavior_time` | BIGINT | 行为发生时间戳（毫秒） |
+
+索引：
+- `idx_user_time`：`(user_id, behavior_time DESC)` — 查询用户最近行为
+- `idx_product_behavior`：`(product_id, behavior_type)` — ItemCF 倒排索引
+- `idx_behavior_type_time`：`(behavior_type, behavior_time DESC)` — 按行为类型查询
+
+#### product_similarity（商品相似度）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | BIGINT AUTO_INCREMENT | 主键 |
+| `product_id` | INT | 商品 A |
+| `similar_product_id` | INT | 商品 B（与 A 相似） |
+| `score` | DOUBLE | 相似度分数 0~1 |
+| `updated_at` | BIGINT | 更新时间戳（毫秒） |
+
+索引：
+- `uk_product_pair`：`(product_id, similar_product_id)` UNIQUE — 防止重复写入
+- `idx_product_score`：`(product_id, score DESC)` — 按相似度降序查询
+
+### 16.9 缓存策略
+
+| Cache Key | TTL | 写入时机 | 失效时机 |
+|-----------|-----|----------|----------|
+| `jmall:recommend:guess:{userId}:{page}` | 3 min | GuessYouLike 计算完成后 | TTL 自动过期 |
+
+**为什么 TTL 是 3 分钟？** 推荐结果不需要实时更新，3 分钟的缓存在用户体验和系统负载之间取得平衡。用户刷新页面或翻页时，如果缓存未过期则直接返回，避免重复计算。
+
+**缓存 key 包含 page**：不同页码的推荐结果独立缓存，避免用户翻页时重新计算全部结果。
+
+### 16.10 冷启动解决方案
+
+#### 新用户冷启动
+
+新用户没有行为数据，前三路召回（用户偏好、ItemCF、UserCF）均返回空结果。此时热门兜底召回保证推荐列表不为空。
+
+```
+新用户请求 GuessYouLike
+    │
+    ├─ recallByUserPreference → 空（无行为数据）
+    ├─ recallByItemCF         → 空（无行为数据）
+    ├─ recallByUserCF         → 空（无行为数据）
+    └─ recallByHotSelling     → 全站热销 Top 30 ✓
+    │
+    ▼
+排序 → 重排 → 返回热门商品列表
+```
+
+随着用户浏览、点击商品，行为数据逐渐积累，推荐结果会越来越个性化。
+
+#### 新商品冷启动
+
+新上架的商品没有用户交互数据，不会出现在 ItemCF 和 UserCF 的结果中。解决方案：
+
+1. 通过 `product_hot` 字段的自然增长（加购/收藏时自增），逐步进入热门兜底池
+2. 下一次 ItemCF 离线计算时，如果有用户与新商品交互，新商品会被纳入相似度计算
+3. 可扩展：新商品上架后的前 N 天给予额外曝光权重（boost）
+
+### 16.11 前端实现
+
+#### GuessYouLike.vue 组件
+
+```
+<GuessYouLike />
+├── 标题栏（"猜你喜欢" + "换一批"按钮）
+├── 商品网格（5列瀑布流）
+│   └── 商品卡片 × N
+│       ├── 商品图片（lazy loading）
+│       ├── 推荐理由标签（左上角渐变色）
+│       ├── 商品名称 + 副标题
+│       └── 售价 + 已购人数
+├── 加载中提示
+├── "已经到底了"提示
+└── 空状态提示
+```
+
+#### 无限滚动
+
+```javascript
+handleScroll() {
+  const scrollTop = document.documentElement.scrollTop
+  const clientHeight = document.documentElement.clientHeight
+  const scrollHeight = document.documentElement.scrollHeight
+  // 距离底部 200px 时触发加载下一页
+  if (scrollTop + clientHeight >= scrollHeight - 200) {
+    this.fetchRecommendations()  // page 自动递增
+  }
+}
+```
+
+#### 行为上报
+
+用户点击推荐列表中的商品时，异步上报点击行为（不阻塞页面跳转）：
+
+```javascript
+reportClick(item) {
+  this.$axios.post('/api/recommend/reportBehavior', {
+    product_id: item.product_id,
+    category_id: item.category_id,
+    behavior_type: 2,  // 点击
+  }).catch(() => {})   // 静默处理，不影响用户体验
+}
+```
+
+商品详情页打开时，自动上报浏览行为（在 `Details.vue` 中）：
+
+```javascript
+getDetails(val) {
+  this.$axios.post('/api/product/getDetails', { productID: val })
+    .then((res) => {
+      this.productDetails = res.data.Product[0]
+      this.reportBehavior(this.productDetails, 1)  // 上报浏览
+    })
+}
+```
+
+#### 响应式布局
+
+```css
+.guess-grid { grid-template-columns: repeat(5, 1fr); }  /* 默认 5 列 */
+
+@media (max-width: 1200px) { repeat(4, 1fr); }  /* 中屏 4 列 */
+@media (max-width: 900px)  { repeat(3, 1fr); }  /* 小屏 3 列 */
+@media (max-width: 600px)  { repeat(2, 1fr); }  /* 手机 2 列 */
+```
+
+### 16.12 完整调用链
+
+```
+用户打开首页（已登录）
+    │
+    ▼
+Home.vue 渲染 <GuessYouLike /> 组件
+    │
+    ▼
+GuessYouLike.mounted() → fetchRecommendations()
+    │
+    ▼
+POST /api/recommend/guessYouLike { page: 1, page_size: 20 }
+    │ (vue.config.js proxy: /api/recommend → http://localhost:8889)
+    ▼
+recommendation-api :8889
+    │
+    ├─ AuthMiddleware → 解析 JWT → 注入 userId 到 context
+    │
+    ├─ GuessYouLikeHandler → 解析请求体 → 调用 GuessYouLikeLogic
+    │
+    └─ GuessYouLikeLogic.GuessYouLike()
+        │
+        ├─ 1. Cache.Get("jmall:recommend:guess:1:1")
+        │     → hit → 直接返回缓存结果
+        │     → miss → 继续计算
+        │
+        ├─ 2. 构建用户画像
+        │     ├─ FindUserProductBehaviors(userId, 30天)
+        │     │   → [{productId:1, categoryId:1, score:12.0}, ...]
+        │     ├─ FindUserPreferredCategories(userId, 30天, 5)
+        │     │   → [1, 2, 7]（手机、电视、充电器）
+        │     └─ FindRecentProductIds(userId, 50)
+        │         → [1, 9, 25, 3, ...]
+        │
+        ├─ 3. 四路召回
+        │     ├─ recallByUserPreference([1,2,7], exclude)
+        │     │   → [{productId:4, reason:"猜你喜欢", score:84}, ...]
+        │     ├─ recallByItemCF([1,9,25,3,...])
+        │     │   → [{productId:10, reason:"相似商品推荐", score:92}, ...]
+        │     ├─ recallByUserCF(userId, exclude)
+        │     │   → [{productId:18, reason:"和你口味相似的人也在看", score:70}, ...]
+        │     └─ recallByHotSelling(exclude)
+        │         → [{productId:9, reason:"热门推荐", score:67}, ...]
+        │
+        ├─ 4. 排序
+        │     → 去重（保留高分）
+        │     → 批量 FindByIds 获取商品详情
+        │     → 计算综合评分
+        │     → 降序排列
+        │
+        ├─ 5. 重排
+        │     → 分类打散（同类不连续 > 2 个）
+        │     → 分页截取 [0:20]
+        │
+        ├─ 6. 填充商品详情
+        │     → FindByIds → 组装 RecommendItem
+        │
+        ├─ 7. Cache.Set("jmall:recommend:guess:1:1", resp, 3min)
+        │
+        └─ 8. 返回 GuessYouLikeResp
+              { code, recommendations, has_more }
+    │
+    ▼
+前端 GuessYouLike.vue 渲染瀑布流
+    │
+    ├─ 用户滚动到底部 → page++ → fetchRecommendations()
+    │
+    └─ 用户点击商品卡片
+        ├─ reportClick(item) → POST /recommend/reportBehavior（异步）
+        └─ router-link → /goods/details?productID=xxx
+```
+
+### 16.13 性能分析
+
+#### 数据库查询次数（单次请求，缓存 miss）
+
+| 步骤 | 查询 | 次数 |
+|------|------|------|
+| 用户画像 | FindUserProductBehaviors + FindUserPreferredCategories + FindRecentProductIds | 3 |
+| 召回1: 用户偏好 | FindByCategoryIds | 1 |
+| 召回2: ItemCF | FindSimilarProductsByIds | 1 |
+| 召回3: UserCF | FindSimilarUsers + FindProductsByUsers | 2 |
+| 召回4: 热门 | FindTopHot | 1 |
+| 排序: 批量查商品 | FindByIds | 1 |
+| 填充详情 | FindByIds | 1 |
+| **总计** | | **10**（缓存 miss 时） |
+
+#### 优化措施
+
+1. **Redis 缓存 3 分钟**：相同用户 + 页码的重复请求直接返回缓存
+2. **批量查询**：FindByIds 消除 N+1 问题
+3. **召回数量限制**：每路召回最多 30 个候选，总候选不超过 120 个
+4. **离线计算**：ItemCF 相似度离线计算，在线查询只是简单的索引查找
+5. **行为数据窗口**：只回溯 30 天，避免扫描过多历史数据
+
+### 16.14 与凑单推荐的对比
+
+| 维度 | 凑单推荐（FillUp） | 猜你喜欢（GuessYouLike） |
+|------|-------------------|------------------------|
+| 触发场景 | 购物车页面 | 首页底部 |
+| 推荐目标 | 帮用户凑满减 | 发现用户可能感兴趣的商品 |
+| 核心约束 | 价格接近差额 | 无价格约束 |
+| 召回策略 | 差额精准 + 关联商品 + 热销 | 用户偏好 + ItemCF + UserCF + 热销 |
+| 个性化程度 | 低（基于购物车内容） | 高（基于用户历史行为） |
+| 数据依赖 | 购物车 + 满减规则 | user_behavior + product_similarity |
+| 缓存 TTL | 2 分钟 | 3 分钟 |
+| 结果数量 | 最多 12 件 | 分页，每页 20 件 |
+
+### 16.15 扩展方向
+
+#### 接入简单机器学习模型
+
+当前的综合评分公式是手工设计的线性加权，可以升级为 LR（逻辑回归）或 LightGBM 模型：
+
+```
+特征工程:
+  - 用户特征: 注册天数、历史购买次数、偏好分类分布
+  - 商品特征: 价格、分类、热度、销量、是否促销
+  - 交叉特征: 用户对该分类的历史行为次数、用户历史平均客单价与商品价格的比值
+
+训练数据:
+  - 正样本: 用户点击/加购/购买的推荐商品
+  - 负样本: 用户曝光但未点击的推荐商品
+
+模型输出:
+  - 预测用户点击该商品的概率 → 替代当前的 finalScore
+```
+
+#### 引入消息队列
+
+当行为上报 QPS 增长到影响 MySQL 写入性能时：
+
+```
+当前: 前端 → POST /reportBehavior → MySQL INSERT
+升级: 前端 → POST /reportBehavior → Redis LIST LPUSH
+      → 异步消费者 → 批量 INSERT MySQL（每秒一批）
+```
+
+Redis LIST 作为轻量级消息队列，无需引入 Kafka 等重型中间件。
+
+#### 实时特征更新
+
+当前用户画像在每次请求时实时计算（查询 user_behavior 表）。如果行为数据量增长，可以改为：
+
+```
+行为上报时 → 异步更新 Redis 中的用户画像缓存
+推荐请求时 → 直接读取 Redis 中的用户画像（O(1)）
+```

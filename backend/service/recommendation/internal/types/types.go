@@ -34,3 +34,28 @@ type FillUpResp struct {
 	Gap             float64         `json:"gap"`
 	Recommendations []RecommendItem `json:"recommendations,omitempty"`
 }
+
+// GuessYouLikeReq 猜你喜欢请求
+type GuessYouLikeReq struct {
+	Page     int `json:"page,optional"`
+	PageSize int `json:"page_size,optional"`
+}
+
+// GuessYouLikeResp 猜你喜欢响应
+type GuessYouLikeResp struct {
+	Code            string          `json:"code"`
+	Recommendations []RecommendItem `json:"recommendations"`
+	HasMore         bool            `json:"has_more"`
+}
+
+// ReportBehaviorReq 上报用户行为请求
+type ReportBehaviorReq struct {
+	ProductID    int64 `json:"product_id"`
+	CategoryID   int64 `json:"category_id"`
+	BehaviorType int64 `json:"behavior_type"`
+}
+
+// ReportBehaviorResp 上报用户行为响应
+type ReportBehaviorResp struct {
+	Code string `json:"code"`
+}

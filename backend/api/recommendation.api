@@ -40,6 +40,31 @@ type (
 		Gap            float64         `json:"gap"`
 		Recommendations []RecommendItem `json:"recommendations,omitempty"`
 	}
+
+	// 猜你喜欢请求
+	GuessYouLikeReq {
+		Page     int `json:"page,optional"`
+		PageSize int `json:"page_size,optional"`
+	}
+
+	// 猜你喜欢响应
+	GuessYouLikeResp {
+		Code            string          `json:"code"`
+		Recommendations []RecommendItem `json:"recommendations"`
+		HasMore         bool            `json:"has_more"`
+	}
+
+	// 上报用户行为请求
+	ReportBehaviorReq {
+		ProductID    int64 `json:"product_id"`
+		CategoryID   int64 `json:"category_id"`
+		BehaviorType int64 `json:"behavior_type"` // 1=浏览 2=点击 3=加购 4=购买 5=收藏
+	}
+
+	// 上报用户行为响应
+	ReportBehaviorResp {
+		Code string `json:"code"`
+	}
 )
 
 @server (
@@ -48,4 +73,10 @@ type (
 service recommendation-api {
 	@handler FillUpHandler
 	post /recommend/fillup (FillUpReq) returns (FillUpResp)
+
+	@handler GuessYouLikeHandler
+	post /recommend/guessYouLike (GuessYouLikeReq) returns (GuessYouLikeResp)
+
+	@handler ReportBehaviorHandler
+	post /recommend/reportBehavior (ReportBehaviorReq) returns (ReportBehaviorResp)
 }

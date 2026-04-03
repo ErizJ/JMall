@@ -19,6 +19,8 @@ type ServiceContext struct {
 	CollectModel            model.CollectModel
 	CombinationProductModel model.CombinationProductModel
 	CategoryModel           model.CategoryModel
+	UserBehaviorModel       model.UserBehaviorModel
+	ProductSimilarityModel  model.ProductSimilarityModel
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -33,5 +35,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		CollectModel:            model.NewCollectModel(conn),
 		CombinationProductModel: model.NewCombinationProductModel(conn),
 		CategoryModel:           model.NewCategoryModel(conn),
+		UserBehaviorModel:       model.NewUserBehaviorModel(conn),
+		ProductSimilarityModel:  model.NewProductSimilarityModel(conn),
 	}
 }

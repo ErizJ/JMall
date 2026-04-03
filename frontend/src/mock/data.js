@@ -178,11 +178,24 @@ const collectList = [
 let paymentNoCounter = 1
 const payments = {}
 
+// ========== 用户行为（猜你喜欢推荐用） ==========
+const userBehaviors = [
+  { user_id: 1, product_id: 1, category_id: 1, behavior_type: 1, behavior_time: Date.now() - 86400000 },
+  { user_id: 1, product_id: 1, category_id: 1, behavior_type: 2, behavior_time: Date.now() - 86000000 },
+  { user_id: 1, product_id: 3, category_id: 1, behavior_type: 1, behavior_time: Date.now() - 72000000 },
+  { user_id: 1, product_id: 4, category_id: 2, behavior_type: 1, behavior_time: Date.now() - 60000000 },
+  { user_id: 1, product_id: 4, category_id: 2, behavior_type: 3, behavior_time: Date.now() - 50000000 },
+  { user_id: 1, product_id: 6, category_id: 7, behavior_type: 4, behavior_time: Date.now() - 40000000 },
+  { user_id: 1, product_id: 5, category_id: 3, behavior_type: 1, behavior_time: Date.now() - 30000000 },
+  { user_id: 1, product_id: 7, category_id: 5, behavior_type: 5, behavior_time: Date.now() - 20000000 },
+]
+
 export {
   products, categories, carousel,
   mockUser, shoppingCart, cartIdCounter,
   orders, orderIdCounter,
   collectList,
   payments, paymentNoCounter,
+  userBehaviors,
   IMG,
 }

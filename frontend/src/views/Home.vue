@@ -94,14 +94,19 @@
         </div>
         <MyList :list="accessoryList" :isMore="true"></MyList>
       </section>
+
+      <!-- 猜你喜欢 -->
+      <GuessYouLike v-if="$store.getters.getUser" />
     </div>
   </div>
 </template>
 
 <script>
 import { mapActions } from 'vuex'
+import GuessYouLike from '../components/GuessYouLike.vue'
 
 export default {
+  components: { GuessYouLike },
   data() {
     return {
       carousel: [],

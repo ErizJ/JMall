@@ -17,6 +17,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/recommend/fillup",
 					Handler: FillUpHandler(serverCtx),
 				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/recommend/guessYouLike",
+					Handler: GuessYouLikeHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/recommend/reportBehavior",
+					Handler: ReportBehaviorHandler(serverCtx),
+				},
 			}...,
 		),
 	)

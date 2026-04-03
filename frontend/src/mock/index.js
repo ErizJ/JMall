@@ -15,6 +15,7 @@ import {
   orders, orderIdCounter,
   collectList,
   payments,
+  userBehaviors,
   IMG,
 } from './data'
 
@@ -300,6 +301,89 @@ const routes = [
 
   ['/api/payment/refund', () => ({
     code: '200', refund_no: 'MOCK-REFUND-' + Date.now(),
+  })],
+
+  // ========== 推荐系统 ==========
+  ['/api/recommend/guessYouLike', (req) => {
+    const page = req.page || 1
+    const pageSize = req.page_size || 20
+
+    // 模拟推荐逻辑：根据用户行为偏好排序 + 热门兜底
+    // 统计用户行为中的分类偏好
+    const catScores = {}
+    userBehaviors.forEach(b => {
+      const weight = { 1: 1, 2: 2, 3: 3, 4: 5, 5: 4 }[b.behavior_type] || 1
+      catScores[b.category_id] = (catScores[b.category_id] || 0) + weight
+    })
+
+    // 按偏好分类排序商品，偏好分类的商品排前面
+    const reasons = ['猜你喜欢', '相似商品推荐', '和你口味相似的人也在看', '热门推荐']
+    const scored = products.map((p, idx) => {
+      const catScore = catScores[p.category_id] || 0
+      const hotScore = (p.product_sales || 0) * 0.3
+      const diversityScore = Math.random() * 20
+      const finalScore = catScore * 3 + hotScore + diversityScore
+      return {
+        product_id: p.product_id,
+        product_name: p.product_name,
+        category_id: p.category_id,
+        product_title: p.product_title,
+        product_picture: p.product_picture,
+        product_price: p.product_price,
+        product_selling_price: p.product_selling_price,
+        product_sales: p.product_sales || 0,
+        product_hot: p.product_sales || 0,
+        recommend_reason: catScore > 0 ? reasons[idx % 3] : reasons[3],
+        score: Math.round(finalScore * 100) / 100,
+      }
+    })
+
+    scored.sort((a, b) => b.score - a.score)
+
+    const start = (page - 1) * pageSize
+    const end = start + pageSize
+    const pageItems = scored.slice(start, end)
+    const hasMore = end < scored.length
+
+    return {
+      code: '200',
+      recommendations: pageItems,
+      has_more: hasMore,
+    }
+  }],
+
+  ['/api/recommend/reportBehavior', (req) => {
+    // 记录行为到内存（mock 模式下不持久化）
+    if (req.product_id && req.behavior_type) {
+      userBehaviors.push({
+        user_id: 1,
+        product_id: req.product_id,
+        category_id: req.category_id || 0,
+        behavior_type: req.behavior_type,
+        behavior_time: Date.now(),
+      })
+    }
+    return { code: '200' }
+  }],
+
+  ['/api/recommend/fillup', () => ({
+    code: '200',
+    cart_total: 4198,
+    nearest_rule: { threshold: 5000, reduction: 500 },
+    gap: 802,
+    recommendations: products.slice(0, 6).map(p => ({
+      product_id: p.product_id,
+      product_name: p.product_name,
+      category_id: p.category_id,
+      product_title: p.product_title,
+      product_picture: p.product_picture,
+      product_price: p.product_price,
+      product_selling_price: p.product_selling_price,
+      product_sales: p.product_sales || 0,
+      product_hot: p.product_sales || 0,
+      recommend_reason: '差额精准推荐',
+      score: 75.5,
+    })),
   })],
 
   // ========== 管理后台 ==========

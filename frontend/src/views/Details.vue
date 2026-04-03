@@ -129,6 +129,8 @@ export default {
         })
         .then((res) => {
           this.productDetails = res.data.Product[0]
+          // 上报浏览行为
+          this.reportBehavior(this.productDetails, 1)
         })
         .catch((err) => {
           return Promise.reject(err)
@@ -207,6 +209,15 @@ export default {
         .catch((err) => {
           return Promise.reject(err)
         })
+    },
+    // 上报用户行为（异步，不阻塞主流程）
+    reportBehavior(product, behaviorType) {
+      if (!this.$store.getters.getUser || !product) return
+      this.$axios.post('/api/recommend/reportBehavior', {
+        product_id: Number(product.product_id),
+        category_id: Number(product.category_id),
+        behavior_type: behaviorType,
+      }).catch(() => {})
     },
   },
 }
