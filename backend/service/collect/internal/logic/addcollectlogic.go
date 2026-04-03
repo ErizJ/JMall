@@ -64,8 +64,6 @@ func (l *AddCollectLogic) AddCollect(req *types.AddCollectReq) (resp *types.AddC
 
 	_ = l.svcCtx.Cache.Del(l.ctx,
 		fmt.Sprintf("jmall:collect:user:%d", userID),
-		"jmall:products:hot:7",
-		"jmall:product:recommend:personal",
 	)
 
 	return &types.AddCollectResp{Code: "200"}, nil

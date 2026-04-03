@@ -217,7 +217,10 @@ func (l *AddOrderLogic) AddOrder(req *types.AddOrderReq) (resp *types.AddOrderRe
 func (l *AddOrderLogic) rollbackStock(productIDs []int64, numMap map[int64]int64) {
 	for _, pid := range productIDs {
 		stockKey := fmt.Sprintf("jmall:stock:%d", pid)
-		_, _ = l.svcCtx.Cache.Eval(l.ctx, luaIncrStock, []string{stockKey}, numMap[pid])
+		_, err := l.svcCtx.Cache.Eval(l.ctx, luaIncrStock, []string{stockKey}, numMap[pid])
+		if err != nil {
+			l.Errorf("rollbackStock failed for product %d: %v", pid, err)
+		}
 	}
 }
 
@@ -227,8 +230,8 @@ func (l *AddOrderLogic) rollbackStock(productIDs []int64, numMap map[int64]int64
 func (l *AddOrderLogic) tryDecrStock(stockKey string, num int64, dbStock int64) (int64, error) {
 	result, err := l.svcCtx.Cache.Eval(l.ctx, luaDecrStock, []string{stockKey}, num)
 	if err != nil {
-		// Redis 错误（非 Lua 返回值），尝试初始化后重试
-		_ = l.svcCtx.Cache.Set(l.ctx, stockKey, dbStock, 10*time.Minute)
+		// Redis 错误（非 Lua 返回值），用 SetNX 初始化避免并发覆盖
+		_ = l.svcCtx.Cache.SetNX(l.ctx, stockKey, dbStock, 10*time.Minute)
 		result, err = l.svcCtx.Cache.Eval(l.ctx, luaDecrStock, []string{stockKey}, num)
 		if err != nil {
 			return -1, err
@@ -237,8 +240,8 @@ func (l *AddOrderLogic) tryDecrStock(stockKey string, num int64, dbStock int64) 
 
 	ret, _ := result.(int64)
 	if ret == -1 {
-		// Lua 返回 -1 表示 key 不存在，从 DB 加载后重试
-		_ = l.svcCtx.Cache.Set(l.ctx, stockKey, dbStock, 10*time.Minute)
+		// Lua 返回 -1 表示 key 不存在，用 SetNX 初始化避免并发覆盖
+		_ = l.svcCtx.Cache.SetNX(l.ctx, stockKey, dbStock, 10*time.Minute)
 		result, err = l.svcCtx.Cache.Eval(l.ctx, luaDecrStock, []string{stockKey}, num)
 		if err != nil {
 			return -1, err

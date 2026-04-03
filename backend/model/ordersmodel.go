@@ -31,6 +31,7 @@ type (
 		FindAll(ctx context.Context) ([]*Orders, error)
 		FindByUserIdGrouped(ctx context.Context, userId int64) ([]int64, error)
 		FindAllWithDetails(ctx context.Context) ([]*OrderDetail, error)
+		FindAllWithDetailsPaged(ctx context.Context, page, pageSize int64) ([]*OrderDetail, int64, error)
 		UpdateStatusByOrderId(ctx context.Context, orderId int64, status int64) error
 	}
 
@@ -125,4 +126,36 @@ func (m *customOrdersModel) UpdateStatusByOrderId(ctx context.Context, orderId i
 	query := fmt.Sprintf("update %s set `status` = ? where `order_id` = ?", m.table)
 	_, err := m.conn.ExecCtx(ctx, query, status, orderId)
 	return err
+}
+
+// FindAllWithDetailsPaged 分页查询订单详情，返回 (数据, 总数, error)
+func (m *customOrdersModel) FindAllWithDetailsPaged(ctx context.Context, page, pageSize int64) ([]*OrderDetail, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	// 先查总数
+	var total int64
+	countQuery := "select count(*) from orders"
+	if err := m.conn.QueryRowCtx(ctx, &total, countQuery); err != nil {
+		return nil, 0, err
+	}
+
+	query := `select o.id, o.order_id, o.user_id, o.product_id, o.product_num, o.product_price, o.order_time, o.status,
+		u.user_name, p.product_name, COALESCE(p.product_picture, '') as product_picture
+		from orders o
+		join users u on o.user_id = u.user_id
+		join product p on o.product_id = p.product_id
+		order by o.order_time desc
+		limit ? offset ?`
+	var resp []*OrderDetail
+	err := m.conn.QueryRowsCtx(ctx, &resp, query, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp, total, nil
 }

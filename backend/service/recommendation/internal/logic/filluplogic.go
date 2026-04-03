@@ -146,6 +146,13 @@ func (l *FillUpLogic) FillUp(req *types.FillUpReq) (resp *types.FillUpResp, err 
 // ==================== 满减规则解析 ====================
 
 func (l *FillUpLogic) getPromotionTiers() []promotionTier {
+	// 优化：满减规则是准静态数据，缓存 10 分钟避免每次请求都查 DB
+	const tiersCacheKey = "jmall:promotion:tiers"
+	var cached []promotionTier
+	if err := l.svcCtx.Cache.Get(l.ctx, tiersCacheKey, &cached); err == nil && len(cached) > 0 {
+		return cached
+	}
+
 	combos, err := l.svcCtx.CombinationProductModel.FindAll(l.ctx)
 	if err != nil || len(combos) == 0 {
 		// 兜底默认规则
@@ -181,6 +188,9 @@ func (l *FillUpLogic) getPromotionTiers() []promotionTier {
 			{Threshold: 3000, Reduction: 300},
 		}
 	}
+
+	// 写入缓存，10 分钟过期
+	_ = l.svcCtx.Cache.Set(l.ctx, tiersCacheKey, tiers, 10*time.Minute)
 	return tiers
 }
 
@@ -246,27 +256,38 @@ var relatedCategoryMap = map[int64][]int64{
 
 func (l *FillUpLogic) strategyAssociated(cartProductIds, cartCategoryIds, excludeIds []int64) []scoredProduct {
 	results := make([]scoredProduct, 0, 20)
+	excludeSet := make(map[int64]bool, len(excludeIds))
+	for _, id := range excludeIds {
+		excludeSet[id] = true
+	}
 
-	// a) combination_product 表的搭配商品
+	// a) combination_product 表的搭配商品 — 批量查询避免 N+1
+	// 先收集所有需要的 vice_product_id，再一次性 FindByIds
+	viceProductIds := make([]int64, 0, 10)
 	for _, pid := range cartProductIds {
 		combos, err := l.svcCtx.CombinationProductModel.FindByMainProductId(l.ctx, pid)
 		if err != nil {
 			continue
 		}
 		for _, c := range combos {
-			// 检查搭配商品是否已在购物车
-			if contains(excludeIds, c.ViceProductId) {
-				continue
+			if !excludeSet[c.ViceProductId] {
+				viceProductIds = append(viceProductIds, c.ViceProductId)
 			}
-			p, err := l.svcCtx.ProductModel.FindOne(l.ctx, c.ViceProductId)
-			if err != nil || p.ProductNum <= 0 {
-				continue
+		}
+	}
+	if len(viceProductIds) > 0 {
+		viceProducts, err := l.svcCtx.ProductModel.FindByIds(l.ctx, viceProductIds)
+		if err == nil {
+			for _, p := range viceProducts {
+				if p.ProductNum <= 0 {
+					continue
+				}
+				results = append(results, scoredProduct{
+					product: p,
+					reason:  "搭配购推荐",
+					score:   90, // 搭配购给高分
+				})
 			}
-			results = append(results, scoredProduct{
-				product: p,
-				reason:  "搭配购推荐",
-				score:   90, // 搭配购给高分
-			})
 		}
 	}
 
@@ -337,21 +358,19 @@ func (l *FillUpLogic) strategyHotSelling(excludeIds []int64) []scoredProduct {
 // 热度分：归一化到 0-100
 
 func (l *FillUpLogic) deduplicateAndRank(candidates []scoredProduct, gap, threshold float64) []types.RecommendItem {
-	seen := make(map[int64]bool)
+	// 优化：用 map 索引替代内层循环，O(n²) → O(n)
+	indexMap := make(map[int64]int, len(candidates)) // productId -> index in unique
 	unique := make([]scoredProduct, 0, len(candidates))
 
 	for _, c := range candidates {
-		if seen[c.product.ProductId] {
+		if idx, exists := indexMap[c.product.ProductId]; exists {
 			// 保留分数更高的
-			for i := range unique {
-				if unique[i].product.ProductId == c.product.ProductId && c.score > unique[i].score {
-					unique[i] = c
-					break
-				}
+			if c.score > unique[idx].score {
+				unique[idx] = c
 			}
 			continue
 		}
-		seen[c.product.ProductId] = true
+		indexMap[c.product.ProductId] = len(unique)
 		unique = append(unique, c)
 	}
 

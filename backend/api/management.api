@@ -108,8 +108,13 @@ type (
 		Code   string          `json:"code"`
 		Orders []MgmtOrderItem `json:"orders,omitempty"`
 	}
+	GetAllOrdersReq {
+		Page     int64 `json:"page,optional"`
+		PageSize int64 `json:"pageSize,optional"`
+	}
 	GetAllOrdersResp {
 		Code   string          `json:"code"`
+		Total  int64           `json:"total"`
 		Orders []MgmtOrderItem `json:"orders,omitempty"`
 	}
 	// -------- Users (admin) --------
@@ -118,8 +123,13 @@ type (
 		UserName    string `json:"userName"`
 		PhoneNumber string `json:"userPhoneNumber"`
 	}
+	GetAllUsersReq {
+		Page     int64 `json:"page,optional"`
+		PageSize int64 `json:"pageSize,optional"`
+	}
 	GetAllUsersResp {
 		Code  string         `json:"code"`
+		Total int64          `json:"total"`
 		Users []MgmtUserItem `json:"users,omitempty"`
 	}
 	// -------- Carousel --------
@@ -171,13 +181,13 @@ service management-api {
 	post /management/deleteProductCombinationById (DeleteCombinationReq) returns (DeleteCombinationResp)
 
 	@handler GetAllOrdersHandler
-	post /management/getAllOrders returns (GetAllOrdersResp)
+	post /management/getAllOrders (GetAllOrdersReq) returns (GetAllOrdersResp)
 
 	@handler GetOrdersByUserNameHandler
 	post /management/getOrdersByUserName (GetOrdersByUserNameReq) returns (GetOrdersByUserNameResp)
 
 	@handler GetAllUsersHandler
-	post /management/getAllUsers returns (GetAllUsersResp)
+	post /management/getAllUsers (GetAllUsersReq) returns (GetAllUsersResp)
 
 	@handler SetCategoryHotZeroHandler
 	post /management/setCategoryHotZero returns (SetCategoryHotZeroResp)

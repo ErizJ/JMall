@@ -1,29 +1,58 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
+	"strings"
 
+	"github.com/ErizJ/JMall/backend/ctxutil"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
 // AuthMiddleware validates the user session / JWT token.
 // Each service's generated authmiddleware.go should delegate here.
-type AuthMiddleware struct{}
+type AuthMiddleware struct {
+	secret string
+}
 
-func NewAuthMiddleware() *AuthMiddleware {
-	return &AuthMiddleware{}
+func NewAuthMiddleware(secret string) *AuthMiddleware {
+	return &AuthMiddleware{secret: secret}
 }
 
 func (m *AuthMiddleware) Handle(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: implement JWT validation
-		// 1. Read Authorization header (Bearer <token>)
-		// 2. Parse and validate token using config.Auth.Secret
-		// 3. Inject user_id into context
-		// 4. Return 401 JSON on failure
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			httpx.OkJson(w, map[string]string{"code": "401"})
+			return
+		}
 
-		// Placeholder: allow all requests through
-		_ = httpx.OkJson // ensure httpx is imported
-		next(w, r)
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
+			return []byte(m.secret), nil
+		})
+		if err != nil || !token.Valid {
+			httpx.OkJson(w, map[string]string{"code": "401"})
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			httpx.OkJson(w, map[string]string{"code": "401"})
+			return
+		}
+
+		userID, ok := claims["userId"]
+		if !ok {
+			httpx.OkJson(w, map[string]string{"code": "401"})
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), ctxutil.CtxKeyUserID, userID)
+		next(w, r.WithContext(ctx))
 	}
 }

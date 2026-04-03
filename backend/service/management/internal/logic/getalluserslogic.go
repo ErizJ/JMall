@@ -26,8 +26,16 @@ func NewGetAllUsersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetAl
 	}
 }
 
-func (l *GetAllUsersLogic) GetAllUsers() (resp *types.GetAllUsersResp, err error) {
-	rows, err := l.svcCtx.UsersModel.FindAll(l.ctx)
+func (l *GetAllUsersLogic) GetAllUsers(req *types.GetAllUsersReq) (resp *types.GetAllUsersResp, err error) {
+	page, pageSize := req.Page, req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	rows, total, err := l.svcCtx.UsersModel.FindAllPaged(l.ctx, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -43,6 +51,7 @@ func (l *GetAllUsersLogic) GetAllUsers() (resp *types.GetAllUsersResp, err error
 
 	return &types.GetAllUsersResp{
 		Code:  "200",
+		Total: total,
 		Users: users,
 	}, nil
 }

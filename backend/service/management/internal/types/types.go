@@ -65,13 +65,25 @@ type GetAllDiscountsResp struct {
 	Combinations []CombinationItem `json:"combinations,omitempty"`
 }
 
+type GetAllOrdersReq struct {
+	Page     int64 `json:"page,optional"`
+	PageSize int64 `json:"pageSize,optional"`
+}
+
 type GetAllOrdersResp struct {
 	Code   string          `json:"code"`
+	Total  int64           `json:"total"`
 	Orders []MgmtOrderItem `json:"orders,omitempty"`
+}
+
+type GetAllUsersReq struct {
+	Page     int64 `json:"page,optional"`
+	PageSize int64 `json:"pageSize,optional"`
 }
 
 type GetAllUsersResp struct {
 	Code  string         `json:"code"`
+	Total int64          `json:"total"`
 	Users []MgmtUserItem `json:"users,omitempty"`
 }
 

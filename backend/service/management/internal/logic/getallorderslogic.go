@@ -27,8 +27,16 @@ func NewGetAllOrdersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetA
 	}
 }
 
-func (l *GetAllOrdersLogic) GetAllOrders() (resp *types.GetAllOrdersResp, err error) {
-	rows, err := l.svcCtx.OrdersModel.FindAllWithDetails(l.ctx)
+func (l *GetAllOrdersLogic) GetAllOrders(req *types.GetAllOrdersReq) (resp *types.GetAllOrdersResp, err error) {
+	page, pageSize := req.Page, req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	rows, total, err := l.svcCtx.OrdersModel.FindAllWithDetailsPaged(l.ctx, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +60,7 @@ func (l *GetAllOrdersLogic) GetAllOrders() (resp *types.GetAllOrdersResp, err er
 
 	return &types.GetAllOrdersResp{
 		Code:   "200",
+		Total:  total,
 		Orders: orders,
 	}, nil
 }
