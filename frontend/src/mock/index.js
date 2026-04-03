@@ -391,6 +391,119 @@ const routes = [
     code: '001',
     category: [{ user_id: 1, user_name: 'testuser', user_phone_number: '138****0000' }],
   })],
+
+  // ========== AI 聊天 ==========
+  ['/api/aichat/chat', (req) => {
+    const msg = (req.message || '').toLowerCase()
+    let reply = ''
+
+    if (msg.includes('热门') || msg.includes('推荐') || msg.includes('火')) {
+      const hot = products.slice(0, 5)
+      reply = '🔥 以下是目前最热门的商品推荐：\n\n'
+      hot.forEach((p, i) => {
+        reply += `${i + 1}. **${p.product_name}** - ${p.product_title}\n`
+        reply += `   售价：¥${p.product_selling_price}`
+        if (p.product_price > p.product_selling_price) {
+          reply += `（原价 ¥${p.product_price}，立省 ¥${p.product_price - p.product_selling_price}）`
+        }
+        reply += `\n   库存：${p.product_num}件 | 已售：${p.product_sales || 0}件\n\n`
+      })
+      reply += '需要了解某个商品的详细信息吗？直接告诉我商品名就行~'
+    } else if (msg.includes('促销') || msg.includes('打折') || msg.includes('优惠') || msg.includes('便宜')) {
+      const promos = products.filter(p => p.product_price > p.product_selling_price)
+      if (promos.length > 0) {
+        reply = '🏷️ 当前正在促销的商品：\n\n'
+        promos.forEach((p, i) => {
+          const discount = Math.round((p.product_selling_price / p.product_price) * 100)
+          reply += `${i + 1}. **${p.product_name}**\n`
+          reply += `   原价 ¥${p.product_price} → 现价 ¥${p.product_selling_price}（${discount}折，省 ¥${p.product_price - p.product_selling_price}）\n\n`
+        })
+        reply += '心动不如行动，赶紧下单吧！'
+      } else {
+        reply = '目前暂时没有促销活动，不过我们的商品价格一直很实惠哦~ 需要我帮你找找特定商品吗？'
+      }
+    } else if (msg.includes('分类') || msg.includes('类别') || msg.includes('有什么')) {
+      reply = '📦 我们商城目前有以下商品分类：\n\n'
+      categories.forEach((c, i) => {
+        const count = products.filter(p => p.category_id === c.category_id).length
+        reply += `${i + 1}. **${c.category_name}** - ${count}件商品\n`
+      })
+      reply += '\n想看哪个分类的商品？告诉我分类名就行~'
+    } else if (msg.includes('手机')) {
+      const phones = products.filter(p => p.category_id === 1)
+      if (phones.length > 0) {
+        reply = '📱 为你找到以下手机：\n\n'
+        phones.forEach((p, i) => {
+          reply += `${i + 1}. **${p.product_name}** - ${p.product_title}\n`
+          reply += `   售价：¥${p.product_selling_price} | 库存：${p.product_num}件\n\n`
+        })
+      } else {
+        reply = '暂时没有找到手机类商品，要不看看其他分类？'
+      }
+    } else if (msg.includes('电视')) {
+      const tvs = products.filter(p => p.category_id === 2)
+      if (tvs.length > 0) {
+        reply = '📺 为你找到以下电视：\n\n'
+        tvs.forEach((p, i) => {
+          reply += `${i + 1}. **${p.product_name}** - ${p.product_title}\n`
+          reply += `   售价：¥${p.product_selling_price} | 库存：${p.product_num}件\n\n`
+        })
+      } else {
+        reply = '暂时没有找到电视类商品。'
+      }
+    } else if (msg.includes('充电') || msg.includes('配件')) {
+      const chargers = products.filter(p => p.category_id === 7)
+      if (chargers.length > 0) {
+        reply = '🔌 为你找到以下充电配件：\n\n'
+        chargers.forEach((p, i) => {
+          reply += `${i + 1}. **${p.product_name}** - ${p.product_title}\n`
+          reply += `   售价：¥${p.product_selling_price} | 库存：${p.product_num}件\n\n`
+        })
+      } else {
+        reply = '暂时没有找到充电配件。'
+      }
+    } else if (msg.includes('价格') || msg.includes('多少钱') || msg.includes('贵')) {
+      // 尝试匹配具体商品名
+      const matched = products.find(p => msg.includes(p.product_name.toLowerCase()))
+      if (matched) {
+        reply = `**${matched.product_name}** 的价格信息：\n\n`
+        reply += `- 原价：¥${matched.product_price}\n`
+        reply += `- 售价：¥${matched.product_selling_price}\n`
+        if (matched.product_price > matched.product_selling_price) {
+          reply += `- 优惠：立省 ¥${matched.product_price - matched.product_selling_price}\n`
+        }
+        reply += `- 库存：${matched.product_num}件\n`
+        reply += `- 已售：${matched.product_sales || 0}件`
+      } else {
+        reply = '请告诉我具体的商品名称，我来帮你查价格~ 比如"Redmi K30 多少钱"'
+      }
+    } else {
+      // 通用搜索：尝试在商品名/标题中匹配关键词
+      const kw = msg.replace(/[？?！!。，,\s]/g, '')
+      const matched = products.filter(p =>
+        p.product_name.toLowerCase().includes(kw) ||
+        p.product_title.toLowerCase().includes(kw) ||
+        p.product_intro.toLowerCase().includes(kw)
+      )
+      if (matched.length > 0) {
+        reply = `🔍 为你找到 ${matched.length} 个相关商品：\n\n`
+        matched.forEach((p, i) => {
+          reply += `${i + 1}. **${p.product_name}** - ${p.product_title}\n`
+          reply += `   售价：¥${p.product_selling_price} | 库存：${p.product_num}件\n\n`
+        })
+      } else {
+        reply = `你好！我是 JMall 智能购物助手 🛒\n\n我可以帮你：\n- 🔍 搜索商品（如"帮我找手机"）\n- 💰 查询价格（如"Redmi K30 多少钱"）\n- 🔥 推荐热门商品\n- 🏷️ 查看促销活动\n- 📦 浏览商品分类\n\n试试跟我说说你想找什么吧~`
+      }
+    }
+
+    return { code: '200', reply: reply }
+  }],
+
+  ['/api/aichat/stream', (req) => {
+    // stream 接口在 mock 模式下不会被调用（AiChat 组件会走 /api/aichat/chat）
+    // 但为了完整性还是加上
+    return { code: '200', reply: 'Mock 模式下请使用非流式接口' }
+  }],
 ]
 
 /**

@@ -92,6 +92,9 @@
       </keep-alive>
     </main>
 
+    <!-- AI 智能助手 -->
+    <AiChat />
+
     <!-- 底栏 -->
     <footer class="site-footer">
       <div class="footer-services">
@@ -116,8 +119,10 @@
 <script>
 import { mapActions } from 'vuex'
 import { mapGetters } from 'vuex'
+import AiChat from './components/AiChat.vue'
 
 export default {
+  components: { AiChat },
   data() {
     return {
       search: '',

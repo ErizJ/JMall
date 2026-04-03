@@ -19,6 +19,7 @@
 11. [支付服务（payment，端口 8887）](#11-支付服务)
 12. [热度系统](#12-热度系统)
 13. [数据库表结构](#13-数据库表结构)
+14. [AI 智能助手服务（aichat，端口 8888）](#14-ai-智能助手服务)
 
 ---
 
@@ -36,15 +37,16 @@
       ├─ /api/orders/*     → order-api     :8884
       ├─ /api/collect/*    → collect-api   :8885
       ├─ /api/management/* → management-api :8886
-      └─ /api/payment/*   → payment-api   :8887
-                  │
-            ┌─────┴─────┐
-            ▼           ▼
-          MySQL 8.0   Redis 7
-          (storedb)   (DB 0)
+      ├─ /api/payment/*   → payment-api   :8887
+      └─ /api/aichat/*    → aichat-api    :8888
+                  │                │
+            ┌─────┴─────┐         │
+            ▼           ▼         ▼
+          MySQL 8.0   Redis 7   豆包大模型 API
+          (storedb)   (DB 0)    (ark.cn-beijing.volces.com)
 ```
 
-**7 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
+**8 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。其中 aichat 服务额外对接豆包大模型 API，通过 MCP 工具协议查询数据库后由大模型生成自然语言回复。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
 
 ---
 
@@ -1304,3 +1306,542 @@ AddCollect（首次）   → CategoryHot+1, ProductHot+1
 | `updated_at` | BIGINT | 更新时间 |
 
 索引：`uk_refund_no`（唯一）、`idx_payment_no`、`idx_order_id`
+
+
+---
+
+## 14. AI 智能助手服务
+
+AI 智能助手是一个嵌入在商城所有页面右下角的悬浮聊天组件，用户可以通过自然语言与之对话，查询商品信息、价格、促销活动、组合优惠等。后端通过 MCP（Model Context Protocol）工具协议让豆包大模型能够实时查询数据库，将结构化数据与自然语言生成能力结合，为用户提供智能购物助手体验。
+
+### 14.1 整体架构
+
+```
+用户输入消息
+    │
+    ▼
+前端 AiChat.vue 组件
+    │
+    ├─ Mock 模式 → Axios POST /api/aichat/chat → Mock 拦截器（本地关键词匹配）
+    │
+    └─ 正常模式 → fetch SSE POST /api/aichat/stream
+                      │
+                      ▼ (Nginx/DevServer proxy rewrite: /api → /)
+                aichat-api :8888
+                      │
+                      ▼
+              ┌───────────────┐
+              │  ChatStream   │
+              │    Logic      │
+              └───────┬───────┘
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+    豆包大模型 API   MCP 工具层   MySQL
+    (chat/completions) (tools.go)  (storedb)
+          │           │
+          │    ┌──────┴──────┐
+          │    │ 工具调用结果  │
+          │    └──────┬──────┘
+          │           │
+          ▼           ▼
+    模型生成最终回复（流式 SSE）
+          │
+          ▼
+    前端逐字渲染
+```
+
+核心流程分为三个阶段：
+
+1. **意图理解**：用户消息 + System Prompt + MCP 工具定义 → 发送给豆包大模型
+2. **数据查询**：模型判断需要调用哪些工具 → 后端执行工具查询数据库 → 结果回传给模型
+3. **回复生成**：模型基于工具返回的真实数据生成自然语言回复 → 流式推送给前端
+
+### 14.2 后端服务结构
+
+```
+backend/service/aichat/
+├── aichat.go                          # 服务入口
+├── etc/
+│   └── aichat-api.yaml                # 配置文件
+└── internal/
+    ├── config/
+    │   └── config.go                  # 配置结构体（含 DoubaoConfig）
+    ├── handler/
+    │   ├── routes.go                  # 路由注册
+    │   ├── chathandler.go             # 非流式接口 Handler
+    │   └── chatstreamhandler.go       # 流式接口 Handler
+    ├── logic/
+    │   ├── chatlogic.go               # 非流式聊天逻辑
+    │   ├── chatstreamlogic.go         # 流式聊天逻辑（SSE）
+    │   └── doubao.go                  # 豆包 API 客户端（callDoubao / streamDoubao）
+    ├── mcp/
+    │   └── tools.go                   # MCP 工具定义与执行
+    ├── svc/
+    │   └── servicecontext.go          # 服务上下文（DB Model + Cache）
+    └── types/
+        └── types.go                   # 请求/响应类型
+```
+
+### 14.3 配置
+
+```yaml
+# etc/aichat-api.yaml
+Name: aichat-api
+Host: 0.0.0.0
+Port: 8888
+
+DB:
+  DataSource: root:root@tcp(localhost:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+
+Auth:
+  Secret: jmall-secret-key-change-in-production
+  ExpireSeconds: 86400
+
+Cache:
+  Addr: localhost:6379
+  Password: ""
+  DB: 0
+
+Doubao:
+  ApiKey: "your-doubao-api-key-here"       # 豆包 API Key（火山引擎控制台获取）
+  Model: "doubao-1-5-pro-256k-250115"      # 模型 ID（Endpoint ID）
+  BaseUrl: "https://ark.cn-beijing.volces.com/api/v3"  # 豆包 API 基础 URL
+```
+
+Docker 部署时通过环境变量 `DOUBAO_API_KEY` 注入，`docker-entrypoint.sh` 会自动替换 YAML 中的 `ApiKey` 字段。
+
+### 14.4 API 接口
+
+#### 14.4.1 非流式聊天 `POST /aichat/chat`
+
+```
+输入: { message: "有什么手机推荐？" }
+
+1. 构建消息列表
+   messages = [
+     { role: "system", content: systemPrompt },
+     { role: "user",   content: req.Message },
+   ]
+
+2. 附加 MCP 工具定义（7 个工具，见 14.5 节）
+
+3. 调用豆包 API（非流式）
+   POST https://ark.cn-beijing.volces.com/api/v3/chat/completions
+   {
+     model: "doubao-1-5-pro-256k-250115",
+     messages: [...],
+     tools: [...],
+     stream: false
+   }
+
+4. 检查响应中是否有 tool_calls
+   ├─ 无 tool_calls（finish_reason == "stop"）
+   │  → 直接返回 { code: "200", reply: choice.message.content }
+   │
+   └─ 有 tool_calls
+      → 解析每个 tool_call 的 function.name 和 function.arguments
+      → 调用 mcp.ExecuteTool() 执行数据库查询
+      → 将工具结果以 { role: "tool", content: 查询结果JSON, tool_call_id: id } 追加到 messages
+      → 重新调用豆包 API（最多循环 3 轮）
+
+5. 返回 { code: "200", reply: "最终自然语言回复" }
+```
+
+#### 14.4.2 流式聊天 `POST /aichat/stream`（SSE）
+
+```
+输入: { message: "现在有什么促销活动？" }
+
+响应头:
+  Content-Type: text/event-stream
+  Cache-Control: no-cache
+  Connection: keep-alive
+
+1. 构建 messages + tools（同非流式）
+
+2. 第一阶段：工具调用（非流式，可能多轮）
+   调用 callDoubao()（stream=false）检查是否需要工具调用
+   ├─ 有 tool_calls
+   │  → 向前端推送思考状态：data: {"thinking":"正在查询商品信息..."}
+   │  → 执行工具 → 结果追加到 messages → 再次调用 callDoubao()
+   │  → 最多循环 3 轮
+   │
+   └─ 无 tool_calls → 进入第二阶段
+
+3. 第二阶段：流式生成（SSE）
+   调用 streamDoubao()（stream=true）
+   → 豆包 API 返回 SSE 流
+   → 逐 chunk 解析 delta.content
+   → 转发给前端：data: {"content":"每个文字片段"}
+   → 前端实时渲染
+
+4. 结束标记
+   data: [DONE]
+```
+
+> **为什么工具调用阶段用非流式？** 工具调用需要完整的 `tool_calls` JSON 才能解析执行，流式模式下 `tool_calls` 的 `arguments` 字段会被分片传输，需要拼接后才能使用。为简化实现，工具调用阶段使用非流式请求，仅最终文本生成阶段使用流式，兼顾了实时性和可靠性。
+
+### 14.5 MCP 工具协议
+
+MCP（Model Context Protocol）工具层是连接大模型和数据库的桥梁。通过 OpenAI 兼容的 Function Calling 协议，将数据库查询能力以工具定义的形式暴露给大模型，模型根据用户意图自主决定调用哪些工具。
+
+#### 工具定义
+
+每个工具以 JSON Schema 格式定义，包含名称、描述和参数结构：
+
+| 工具名 | 描述 | 参数 | 对应 DB 操作 |
+|--------|------|------|-------------|
+| `search_products` | 根据关键词搜索商品 | `keyword: string` | `ProductModel.FindBySearch(keyword)` |
+| `get_categories` | 获取所有商品分类 | 无 | `CategoryModel.FindAll()` |
+| `get_product_detail` | 根据 ID 获取商品详情 | `product_id: int` | `ProductModel.FindOne(id)` |
+| `get_products_by_category` | 按分类获取商品列表 | `category_id: int` | `ProductModel.FindByCategory(id)` |
+| `get_hot_products` | 获取热门商品排行 | `limit?: int`（默认 10） | `ProductModel.FindTopHot(limit)` |
+| `get_promotion_products` | 获取促销商品列表 | `limit?: int`（默认 10） | `ProductModel.FindByIsPromotion(limit)` |
+| `get_combination_discounts` | 获取组合优惠/满减信息 | 无 | `CombinationProductModel.FindAll()` + 关联查询商品名 |
+
+#### 工具执行流程
+
+```
+豆包模型返回 tool_calls:
+[
+  {
+    "id": "call_abc123",
+    "type": "function",
+    "function": {
+      "name": "search_products",
+      "arguments": "{\"keyword\":\"手机\"}"
+    }
+  }
+]
+    │
+    ▼
+mcp.ExecuteTool(ctx, svcCtx, "search_products", "{\"keyword\":\"手机\"}")
+    │
+    ▼
+execSearchProducts()
+    │
+    ├─ 解析 arguments JSON → keyword = "手机"
+    ├─ svcCtx.ProductModel.FindBySearch(ctx, "手机")
+    │  SQL: SELECT ... FROM product
+    │       WHERE product_name LIKE '%手机%'
+    │          OR product_title LIKE '%手机%'
+    │          OR product_intro LIKE '%手机%'
+    ├─ 组装精简结果（只返回模型需要的字段）
+    └─ 返回 JSON: [{"id":1,"name":"Redmi K30","price":1999,"selling_price":1599,...}]
+    │
+    ▼
+结果以 tool message 追加到对话历史:
+{
+  "role": "tool",
+  "content": "[{\"id\":1,\"name\":\"Redmi K30\",...}]",
+  "tool_call_id": "call_abc123"
+}
+    │
+    ▼
+再次调用豆包 API → 模型基于真实数据生成自然语言回复
+```
+
+#### 工具返回数据格式
+
+工具返回的 JSON 经过精简，只包含模型生成回复所需的关键字段，避免传输冗余数据：
+
+```json
+// search_products / get_products_by_category 返回格式
+[
+  {
+    "id": 1,
+    "name": "Redmi K30",
+    "price": 1999,
+    "selling_price": 1599,
+    "stock": 100,
+    "sales": 50,
+    "is_promotion": 1
+  }
+]
+
+// get_combination_discounts 返回格式（关联查询了商品名）
+[
+  {
+    "main_product_id": 1,
+    "main_product_name": "Redmi K30",
+    "vice_product_id": 6,
+    "vice_product_name": "小米USB充电器30W",
+    "amount_threshold": 2,
+    "price_reduction": 20
+  }
+]
+```
+
+### 14.6 豆包大模型 API 客户端
+
+#### 非流式调用 `callDoubao()`
+
+```
+POST {BaseUrl}/chat/completions
+Headers:
+  Content-Type: application/json
+  Authorization: Bearer {ApiKey}
+
+Body:
+{
+  "model": "doubao-1-5-pro-256k-250115",
+  "messages": [
+    { "role": "system", "content": "你是 JMall 商城的 AI 智能购物助手..." },
+    { "role": "user", "content": "有什么手机推荐？" }
+  ],
+  "tools": [
+    { "type": "function", "function": { "name": "search_products", ... } },
+    ...
+  ],
+  "stream": false
+}
+
+Response:
+{
+  "id": "chatcmpl-xxx",
+  "choices": [{
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "...",           // 文本回复（无工具调用时）
+      "tool_calls": [...]         // 工具调用（需要查询数据时）
+    },
+    "finish_reason": "stop"       // "stop" = 文本完成, "tool_calls" = 需要执行工具
+  }]
+}
+```
+
+#### 流式调用 `streamDoubao()`
+
+```
+请求同上，但 "stream": true
+
+响应为 SSE 流：
+data: {"id":"chatcmpl-xxx","choices":[{"delta":{"content":"为"},"index":0}]}
+data: {"id":"chatcmpl-xxx","choices":[{"delta":{"content":"你"},"index":0}]}
+data: {"id":"chatcmpl-xxx","choices":[{"delta":{"content":"推荐"},"index":0}]}
+...
+data: [DONE]
+
+后端逐行解析 → 提取 delta.content → 封装为前端 SSE 格式 → 转发
+```
+
+流式模式下 tool_calls 的 arguments 会被分片传输，后端通过 `toolCallArgBuilders` map 按 index 拼接完整参数。
+
+### 14.7 System Prompt
+
+```
+你是 JMall 商城的 AI 智能购物助手。你可以帮助用户：
+1. 搜索和查询商品信息（名称、价格、库存等）
+2. 查看商品分类
+3. 了解热门商品和促销活动
+4. 查询组合优惠和满减信息
+5. 提供购物建议和商品推荐
+
+请用友好、专业的语气回答用户问题。当需要查询商品信息时，请使用提供的工具函数。
+回答时请使用中文，并尽量提供具体的商品信息（如价格、库存等）。
+如果用户问的问题与购物无关，请礼貌地引导用户回到购物相关话题。
+```
+
+System Prompt 定义了模型的角色边界和行为规范，确保模型：
+- 知道自己是购物助手，会主动使用工具查询真实数据
+- 用中文回复，提供具体的价格和库存信息
+- 对非购物话题进行礼貌引导
+
+### 14.8 前端实现
+
+#### 组件结构
+
+`AiChat.vue` 是一个全局悬浮组件，挂载在 `App.vue` 中，所有页面可见。
+
+```
+App.vue
+└── <AiChat />
+    ├── 悬浮按钮（FAB）── 右下角固定定位，点击展开/收起聊天窗口
+    ├── 聊天窗口
+    │   ├── Header（标题 + 最小化按钮）
+    │   ├── Body（消息列表 + 欢迎消息 + 快捷建议）
+    │   └── Footer（输入框 + 发送按钮）
+    └── 加载指示器（打字动画 / 思考状态文字）
+```
+
+#### 双模式发送策略
+
+组件根据环境变量 `VUE_APP_USE_MOCK` 自动切换发送模式：
+
+```
+sendMessage()
+    │
+    ├─ isMock === true
+    │  → sendMockMessage()
+    │  → this.$axios.post('/api/aichat/chat', { message })
+    │  → Axios 拦截器捕获 → 返回 mock 数据
+    │  → 逐字打字动画渲染（每 3 个字符暂停 30ms）
+    │
+    └─ isMock === false
+       → sendStreamMessage()
+       → fetch('/api/aichat/stream', { method: 'POST', body: { message } })
+       → ReadableStream reader 逐 chunk 读取
+       → 解析 SSE data 行
+       │  ├─ {"thinking":"..."} → 显示思考状态
+       │  ├─ {"content":"..."}  → 追加到消息气泡
+       │  ├─ {"error":"..."}    → 显示错误信息
+       │  └─ [DONE]             → 结束
+       → 实时渲染，自动滚动到底部
+```
+
+> **为什么 Mock 模式不用 SSE？** Mock 系统基于 Axios 请求拦截器实现，通过 `config.adapter` 直接返回数据，不发出真实网络请求。而 `fetch` API 不经过 Axios，无法被拦截。因此 Mock 模式下改用 Axios 调用非流式接口 `/api/aichat/chat`，并通过前端逐字动画模拟流式效果。
+
+#### Mock 智能回复
+
+Mock 模式下的 AI 回复通过关键词匹配实现，覆盖以下场景：
+
+| 用户输入关键词 | Mock 行为 |
+|---------------|----------|
+| 热门、推荐、火 | 返回前 5 个商品，含价格和优惠信息 |
+| 促销、打折、优惠、便宜 | 筛选原价 > 售价的商品，计算折扣率 |
+| 分类、类别、有什么 | 列出所有分类及各分类商品数量 |
+| 手机 | 筛选 category_id=1 的商品 |
+| 电视 | 筛选 category_id=2 的商品 |
+| 充电、配件 | 筛选 category_id=7 的商品 |
+| 价格、多少钱、贵 | 尝试匹配具体商品名，返回详细价格信息 |
+| 其他 | 在商品名/标题/简介中模糊搜索，无匹配则返回功能引导 |
+
+Mock 数据来源于 `frontend/src/mock/data.js` 中的 `products` 和 `categories` 数组，与其他 Mock 接口共享同一份数据。
+
+### 14.9 请求路由与代理
+
+#### 开发环境（vue.config.js devServer proxy）
+
+```
+前端请求: POST /api/aichat/stream
+    → pathRewrite: '^/api' → ''
+    → 转发到: http://localhost:8888/aichat/stream
+```
+
+#### Docker 环境（nginx.conf）
+
+```nginx
+location /api/aichat/ {
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_pass http://aichat:8888;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_buffering off;       # SSE 必须关闭缓冲
+    proxy_cache off;           # 禁用缓存
+    proxy_read_timeout 300s;   # 长连接超时（流式响应可能持续较久）
+}
+```
+
+> SSE 代理的关键配置：`proxy_buffering off` 确保 Nginx 不缓冲后端响应，每个 chunk 立即转发给客户端；`proxy_read_timeout 300s` 防止长时间的流式响应被 Nginx 超时断开。
+
+### 14.10 ServiceContext
+
+```go
+type ServiceContext struct {
+    Config                  config.Config
+    Cache                   *cache.Client
+    ProductModel            model.ProductModel           // 商品查询
+    CategoryModel           model.CategoryModel          // 分类查询
+    CombinationProductModel model.CombinationProductModel // 组合优惠查询
+}
+```
+
+aichat 服务复用了 product、category、combination_product 三个 Model，直接查询同一个 MySQL 数据库。不需要通过 RPC 调用其他微服务，避免了额外的网络开销。
+
+### 14.11 多轮工具调用机制
+
+模型可能需要多次工具调用才能回答一个复杂问题。例如用户问"手机分类下有什么促销商品"，模型可能：
+
+```
+第 1 轮: 调用 get_categories → 获取分类列表，找到"手机"的 category_id=1
+第 2 轮: 调用 get_products_by_category(category_id=1) → 获取手机列表
+第 3 轮: 无工具调用 → 基于数据生成最终回复
+```
+
+后端限制最多 3 轮工具调用，防止模型陷入无限循环。每轮的对话历史完整保留：
+
+```
+messages 演变过程:
+
+[system, user]
+    → 第 1 轮调用后: [system, user, assistant(tool_calls), tool(结果)]
+    → 第 2 轮调用后: [system, user, assistant(tool_calls), tool(结果), assistant(tool_calls), tool(结果)]
+    → 最终生成:      [system, user, ..., assistant(最终文本回复)]
+```
+
+### 14.12 部署配置
+
+#### docker-compose.yml
+
+```yaml
+aichat:
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    args:
+      SERVICE: aichat
+  container_name: jmall-aichat
+  restart: unless-stopped
+  ports:
+    - "8888:8888"
+  environment:
+    DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+    REDIS_ADDR: redis:6379
+    DOUBAO_API_KEY: ${DOUBAO_API_KEY:-your-doubao-api-key-here}
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+```
+
+#### docker-entrypoint.sh 注入逻辑
+
+```sh
+# AI chat service specific: inject Doubao API key
+if [ -n "$DOUBAO_API_KEY" ]; then
+  sed -i "s|ApiKey:.*|ApiKey: ${DOUBAO_API_KEY}|" "$CONFIG"
+fi
+```
+
+#### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DOUBAO_API_KEY` | 豆包 API Key | `your-doubao-api-key-here`（需替换） |
+| `DB_SOURCE` | MySQL 连接串 | 同其他服务 |
+| `REDIS_ADDR` | Redis 地址 | 同其他服务 |
+
+### 14.13 典型交互示例
+
+```
+用户: 有什么手机推荐？
+
+→ 后端发送给豆包:
+  messages: [system, user("有什么手机推荐？")]
+  tools: [search_products, get_categories, ...]
+
+→ 豆包返回 tool_calls:
+  [{ function: { name: "search_products", arguments: '{"keyword":"手机"}' } }]
+
+→ 后端执行 search_products("手机"):
+  SQL: SELECT ... FROM product WHERE product_name LIKE '%手机%' OR ...
+  返回: [
+    {"id":1,"name":"Redmi K30","price":1999,"selling_price":1599,"stock":100,"sales":50},
+    {"id":2,"name":"Redmi K30 5G","price":2599,"selling_price":2599,"stock":80,"sales":30},
+    {"id":3,"name":"小米CC9 Pro","price":2799,"selling_price":2599,"stock":60,"sales":20}
+  ]
+
+→ 工具结果追加到 messages，再次调用豆包
+
+→ 豆包生成最终回复（流式）:
+  "为你推荐以下手机：
+   1. **Redmi K30** - 120Hz流速屏，售价 ¥1599（原价 ¥1999，立省 ¥400），库存充足
+   2. **Redmi K30 5G** - 双模5G，售价 ¥2599，库存 80 件
+   3. **小米CC9 Pro** - 1亿像素五摄，售价 ¥2599（原价 ¥2799），库存 60 件
+   需要了解某款手机的详细信息吗？"
+
+→ 前端 SSE 逐字渲染
+```

@@ -50,6 +50,11 @@ module.exports = {
         target: 'http://localhost:8887/',
         changeOrigin: true,
         pathRewrite: { '^/api': '' }
+      },
+      '/api/aichat': {
+        target: 'http://localhost:8888/',
+        changeOrigin: true,
+        pathRewrite: { '^/api': '' }
       }
     }
   }

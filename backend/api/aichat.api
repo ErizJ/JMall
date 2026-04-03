@@ -1,0 +1,25 @@
+syntax = "v1"
+
+info (
+	title:  "JMall AI Chat Service"
+	author: "ErizJ"
+)
+
+type (
+	ChatReq {
+		Message string `json:"message"`
+	}
+	ChatResp {
+		Code    string `json:"code"`
+		Reply   string `json:"reply"`
+	}
+)
+
+// AI 聊天接口（流式通过 SSE 实现，此处定义非流式备用）
+service aichat-api {
+	@handler ChatHandler
+	post /aichat/chat (ChatReq) returns (ChatResp)
+
+	@handler ChatStreamHandler
+	post /aichat/stream (ChatReq)
+}

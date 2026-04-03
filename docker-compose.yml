@@ -173,6 +173,26 @@ services:
       redis:
         condition: service_healthy
 
+  aichat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: aichat
+    container_name: jmall-aichat
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_ADDR: redis:6379
+      DOUBAO_API_KEY: ${DOUBAO_API_KEY:-your-doubao-api-key-here}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # ─── 前端 ──────────────────────────────────────────────────
 
   frontend:
@@ -191,6 +211,7 @@ services:
       - collect
       - management
       - payment
+      - aichat
 
 volumes:
   mysql_data:

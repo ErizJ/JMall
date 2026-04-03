@@ -17,4 +17,9 @@ if [ -n "$PAYMENT_NOTIFY_URL" ]; then
   sed -i "s|NotifyUrl:.*|NotifyUrl: ${PAYMENT_NOTIFY_URL}|" "$CONFIG"
 fi
 
+# AI chat service specific: inject Doubao API key
+if [ -n "$DOUBAO_API_KEY" ]; then
+  sed -i "s|ApiKey:.*|ApiKey: ${DOUBAO_API_KEY}|" "$CONFIG"
+fi
+
 exec /app/service -f "$CONFIG"

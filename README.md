@@ -26,6 +26,7 @@
 | collect-api | 8885 | 收藏服务 |
 | management-api | 8886 | 管理后台服务 |
 | payment-api | 8887 | 支付服务（支付/回调/退款） |
+| aichat-api | 8888 | AI 智能助手服务（豆包大模型 + MCP） |
 | 前端 | 8080 | Nginx（Docker）/ Vue CLI Dev Server（本地） |
 
 ---
