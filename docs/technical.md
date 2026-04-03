@@ -28,7 +28,7 @@
 客户端（浏览器）
       │
       ▼
-  Nginx / Vite Dev Server（:8080）
+  Nginx / Vue CLI Dev Server（:8080）
       │
       ├─ /api/users/*      → user-api      :8881
       ├─ /api/products/*   → product-api   :8882

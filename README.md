@@ -1,57 +1,36 @@
 # JMall
 
-小米风格电商平台，使用 go-zero 重构后端。
+小米风格电商平台，前端 Vue 2 + Element UI，后端 go-zero 微服务。
 
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
-| 前端 | Vue 3 · TypeScript · Vite · Element Plus · Pinia |
+| 前端 | Vue 2.6 · JavaScript · Vue CLI 4 · Element UI 2.x · Vuex 3 |
 | 后端 | Go 1.23 · go-zero 1.10（REST） |
 | 数据库 | MySQL 8.0 |
 | 缓存 | Redis 7 |
 
 ---
 
-## 中间件依赖
+## 各服务监听端口
 
-| 中间件 | 版本 | 用途 | 默认端口 |
-|--------|------|------|----------|
-| MySQL | 8.0 | 主数据存储，数据库名 `storedb` | 3306 |
-| Redis | 7.x | 缓存（用户信息、商品列表、购物车等） | 6379 |
-
-### MySQL 配置
-
-- 数据库名：`storedb`
-- 默认账号：`root` / 密码：`root`（可在 yaml 配置文件中修改）
-- 字符集：`utf8mb4`
-- 初始化 SQL：
-  - `backend/model/sql/storeDB.sql`（建表 + 种子数据）
-  - `backend/model/sql/payment.sql`（支付表 + orders 表 status 字段）
-- Docker 部署时两个 SQL 文件会按编号顺序自动执行
-
-### Redis 配置
-
-- 无密码（默认）
-- DB 编号：`0`
-- 所有服务共用同一个 Redis 实例，key 前缀为 `jmall:`
-
-### 各服务监听端口
-
-| 服务 | 端口 |
-|------|------|
-| user-api | 8881 |
-| product-api | 8882 |
-| cart-api | 8883 |
-| order-api | 8884 |
-| collect-api | 8885 |
-| management-api | 8886 |
-| payment-api | 8887 |
-| 前端（Nginx / Dev） | 8080 |
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| MySQL | 3306 | 主数据存储，数据库名 `storedb` |
+| Redis | 6379 | 缓存，key 前缀 `jmall:` |
+| user-api | 8881 | 用户服务（注册/登录/信息） |
+| product-api | 8882 | 商品服务（列表/搜索/详情） |
+| cart-api | 8883 | 购物车服务 |
+| order-api | 8884 | 订单服务 |
+| collect-api | 8885 | 收藏服务 |
+| management-api | 8886 | 管理后台服务 |
+| payment-api | 8887 | 支付服务（支付/回调/退款） |
+| 前端 | 8080 | Nginx（Docker）/ Vue CLI Dev Server（本地） |
 
 ---
 
-## 快速启动（Docker 一键部署）
+## 方式一：Docker 一键部署（推荐）
 
 > 前提：已安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/) 或 Docker + Docker Compose v2。
 
@@ -61,59 +40,146 @@ cd JMall
 docker compose up --build
 ```
 
-- MySQL 数据库会在首次启动时自动执行 `storeDB.sql` 完成初始化。
-- 所有后端服务会等待 MySQL 和 Redis 健康检查通过后才启动。
-- 前端访问地址：[http://localhost:8080](http://localhost:8080)
+启动后会自动完成以下工作：
 
-停止并清理：
+1. 启动 MySQL 8.0，自动执行 `storeDB.sql` 和 `payment.sql` 初始化数据库
+2. 启动 Redis 7
+3. 等待 MySQL 和 Redis 健康检查通过后，启动 7 个后端微服务
+4. 构建前端（`npm run build`），用 Nginx 托管静态文件并反向代理 API 请求
+
+访问地址：[http://localhost:8080](http://localhost:8080)
 
 ```bash
-docker compose down          # 保留数据卷
-docker compose down -v       # 同时删除 MySQL / Redis 数据卷
+# 停止服务（保留数据）
+docker compose down
+
+# 停止服务并删除数据卷（完全重置）
+docker compose down -v
 ```
+
+### Docker 架构说明
+
+```
+浏览器 → Nginx(:8080)
+              │
+              ├─ 静态文件（Vue 构建产物）
+              │
+              └─ /api/* 反向代理 ──┬─ /api/users/*           → user:8881
+                                   ├─ /api/product/*          → product:8882
+                                   ├─ /api/user/shoppingCart/* → cart:8883
+                                   ├─ /api/user/order/*       → order:8884
+                                   ├─ /api/order/*            → order:8884
+                                   ├─ /api/user/collect/*     → collect:8885
+                                   ├─ /api/resources/*        → management:8886
+                                   ├─ /api/management/*       → management:8886
+                                   └─ /api/payment/*          → payment:8887
+```
+
+前端 Dockerfile 采用两阶段构建：
+- 构建阶段：`node:16-alpine` 执行 `npm ci && npm run build`
+- 运行阶段：`nginx:1.25-alpine` 托管 `dist/` 静态文件 + 反向代理
+
+后端 Dockerfile 同样两阶段构建：
+- 构建阶段：`golang:1.23-alpine` 编译指定服务
+- 运行阶段：`alpine:3.20`，通过 `docker-entrypoint.sh` 注入环境变量到 yaml 配置
 
 ---
 
-## 本地开发启动
+## 方式二：本地开发启动
 
 ### 前提
 
 - Go 1.23+
-- Node.js 20+
-- MySQL 8.0（本地或容器）
-- Redis 7（本地或容器）
+- Node.js 16+（推荐 16.x，兼容 Vue CLI 4）
+- MySQL 8.0（本地安装或 Docker 容器）
+- Redis 7（本地安装或 Docker 容器）
 
-### 1. 初始化数据库
+> 如果只想用 Docker 跑中间件，不想本地装 MySQL/Redis：
+> ```bash
+> docker compose up mysql redis -d
+> ```
+
+### 第一步：初始化数据库
 
 ```bash
 mysql -u root -p < backend/model/sql/storeDB.sql
 mysql -u root -p storedb < backend/model/sql/payment.sql
 ```
 
-### 2. 启动所有后端服务
+默认连接信息：`root:root@tcp(localhost:3306)/storedb`，可在各服务的 `etc/<name>-api.yaml` 中修改。
+
+### 第二步：启动后端（7 个服务）
 
 ```bash
 cd backend
-go run service/user/user.go       -f service/user/etc/user-api.yaml &
-go run service/product/product.go -f service/product/etc/product-api.yaml &
-go run service/cart/cart.go       -f service/cart/etc/cart-api.yaml &
-go run service/order/order.go     -f service/order/etc/order-api.yaml &
-go run service/collect/collect.go -f service/collect/etc/collect-api.yaml &
+
+# 一次性启动所有服务（后台运行）
+go run service/user/user.go             -f service/user/etc/user-api.yaml &
+go run service/product/product.go       -f service/product/etc/product-api.yaml &
+go run service/cart/cart.go             -f service/cart/etc/cart-api.yaml &
+go run service/order/order.go           -f service/order/etc/order-api.yaml &
+go run service/collect/collect.go       -f service/collect/etc/collect-api.yaml &
 go run service/management/management.go -f service/management/etc/management-api.yaml &
-go run service/payment/payment.go -f service/payment/etc/payment-api.yaml &
+go run service/payment/payment.go       -f service/payment/etc/payment-api.yaml &
 ```
 
-配置文件路径：`backend/service/<name>/etc/<name>-api.yaml`，可在其中修改数据库连接串和 Redis 地址。
+每个服务的配置文件在 `backend/service/<name>/etc/<name>-api.yaml`，可修改数据库连接串、Redis 地址、JWT 密钥等。
 
-### 3. 启动前端
+### 第三步：启动前端
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run serve
 ```
 
-前端 dev server 运行在 `http://localhost:8080`，并通过 Vite proxy 将 `/api` 转发到后端。
+Vue CLI Dev Server 运行在 `http://localhost:8080`，通过 `vue.config.js` 中的 proxy 配置将 `/api` 请求按路径前缀转发到对应的后端服务端口。
+
+> Node.js 17+ 需要设置环境变量：`NODE_OPTIONS=--openssl-legacy-provider npm run serve`
+
+---
+
+## 前端环境切换：真实后端 vs Mock 数据
+
+前端支持两种运行模式，通过不同的 npm 命令一键切换：
+
+| 命令 | 模式 | 需要后端？ | 数据来源 | 适用场景 |
+|------|------|-----------|----------|----------|
+| `npm run serve` | 真实后端 | 是 | MySQL + Redis | 联调、集成测试、正式开发 |
+| `npm run mock` | Mock 数据 | 否 | `src/mock/data.js` | 前端独立开发、UI 调试、演示 |
+
+### 使用真实后端
+
+确保后端 7 个服务和 MySQL、Redis 都已启动（参考上方"方式一"或"方式二"），然后：
+
+```bash
+cd frontend
+npm run serve
+```
+
+请求通过 `vue.config.js` 中的 proxy 转发到各后端服务端口（8881-8887）。
+
+### 使用 Mock 数据（无需后端）
+
+不需要启动任何后端服务或数据库：
+
+```bash
+cd frontend
+npm run mock
+```
+
+原理：`npm run mock` 等价于 `vue-cli-service serve --mode mock`，会加载 `.env.mock` 文件中的 `VUE_APP_USE_MOCK=true`。`main.js` 检测到该变量后，注册一个 Axios 请求拦截器，所有 `/api/*` 请求在发出前就被拦截并返回 `src/mock/data.js` 中的模拟数据，不会产生任何真实网络请求。
+
+Mock 模式下的行为：
+- 任意用户名密码均可登录，内置测试用户自动获得管理员权限
+- 商品、购物车、订单、收藏、支付等全流程可正常操作
+- 商品图片使用 picsum.photos 占位图
+- 数据存在内存中，刷新页面后重置
+- 浏览器控制台会输出 `[Mock] Mock 模式已启用` 提示
+
+### 自定义 Mock 数据
+
+编辑 `frontend/src/mock/data.js` 可修改模拟数据（商品列表、分类、用户信息等）。编辑 `frontend/src/mock/index.js` 可调整接口响应逻辑。修改后热更新自动生效，无需重启。
 
 ---
 
@@ -121,36 +187,51 @@ npm run dev
 
 ```
 JMall/
-├── docker-compose.yml         # 一键启动编排文件
+├── docker-compose.yml            # Docker 编排（一键启动全部服务）
+│
 ├── frontend/
-│   ├── Dockerfile
-│   ├── nginx.conf             # 生产环境 Nginx 反代配置
+│   ├── Dockerfile                # 前端镜像（Node 构建 + Nginx 运行）
+│   ├── nginx.conf                # Nginx 配置（静态托管 + API 反向代理）
+│   ├── vue.config.js             # Vue CLI 配置（开发代理）
+│   ├── public/                   # 静态资源（index.html、favicon）
 │   └── src/
-│       ├── api/               # Axios 请求层
-│       ├── stores/            # Pinia 状态管理（user, cart）
-│       ├── views/             # 页面组件
-│       ├── components/        # 通用 / 业务组件
-│       ├── router/            # Vue Router 配置
-│       ├── types/             # TypeScript 类型
-│       └── utils/             # Axios 实例 / 工具函数
+│       ├── main.js               # 入口（Element UI、Axios 拦截器、全局组件）
+│       ├── Global.js             # 全局变量与工具方法
+│       ├── store/                # Vuex 状态管理（user, shoppingCart）
+│       ├── router/               # Vue Router 路由配置
+│       ├── views/                # 页面组件
+│       │   ├── Home.vue          # 首页（轮播图、推荐、促销）
+│       │   ├── Goods.vue         # 全部商品（分类、搜索、分页）
+│       │   ├── Details.vue       # 商品详情
+│       │   ├── ShoppingCart.vue  # 购物车
+│       │   ├── ConfirmOrder.vue  # 确认订单
+│       │   ├── Payment.vue       # 支付页面
+│       │   ├── Order.vue         # 我的订单
+│       │   ├── Collect.vue       # 我的收藏
+│       │   └── Manager.vue       # 系统管理
+│       ├── components/           # 通用组件（MyList, MyLogin, MyRegister 等）
+│       ├── mock/                 # Mock 拦截器 + 模拟数据（npm run mock 时启用）
+│       └── assets/               # 图片、CSS 资源
 │
 └── backend/
-    ├── Dockerfile             # 多服务共用，ARG SERVICE 指定目标
-    ├── docker-entrypoint.sh   # 容器启动脚本（注入环境变量）
-    ├── api/                   # .api 接口定义文件（goctl 输入）
-    ├── ctxutil/               # 共享工具（JWT context 提取）
-    ├── cache/                 # Redis client 封装
-    ├── model/                 # go-zero 生成的数据库模型 + 自定义方法
-    │   └── sql/storeDB.sql    # 建表 + 种子数据
-    ├── middleware/            # 共享 Auth 中间件
+    ├── Dockerfile                # 后端镜像（Go 编译 + Alpine 运行）
+    ├── docker-entrypoint.sh      # 容器启动脚本（注入环境变量）
+    ├── api/                      # .api 接口定义文件（goctl 输入）
+    ├── model/                    # 数据库模型 + SQL 初始化脚本
+    │   └── sql/
+    │       ├── storeDB.sql       # 建表 + 种子数据
+    │       └── payment.sql       # 支付相关表
+    ├── cache/                    # Redis client 封装
+    ├── ctxutil/                  # JWT context 工具
+    ├── middleware/               # 共享 Auth 中间件
     └── service/
-        ├── user/              # 用户服务（注册 / 登录 / 信息）
-        ├── product/           # 商品服务（列表 / 搜索 / 详情）
-        ├── cart/              # 购物车服务
-        ├── order/             # 订单服务
-        ├── collect/           # 收藏服务
-        ├── management/        # 管理后台服务
-        └── payment/           # 支付服务（支付 / 回调 / 退款）
+        ├── user/                 # 用户服务 :8881
+        ├── product/              # 商品服务 :8882
+        ├── cart/                 # 购物车服务 :8883
+        ├── order/                # 订单服务 :8884
+        ├── collect/              # 收藏服务 :8885
+        ├── management/           # 管理后台服务 :8886
+        └── payment/              # 支付服务 :8887
 ```
 
 ---
@@ -164,11 +245,11 @@ JMall/
 |------|------|-------------|
 | user | `/users/register` `/users/login` `/users/logout` `/users/findUserName` | 否 |
 | user | `/users/getDetails` `/users/updateUser` `/users/deleteUserById` `/users/isManager` | 是 |
-| product | `/products/getAll` `/products/getByCategory` `/products/search` `/products/getHot` `/products/getPromotion` `/products/getDetails` | 否 |
-| cart | `/cart/add` `/cart/get` `/cart/update` `/cart/delete` `/cart/isExist` | 是 |
-| order | `/orders/add` `/orders/get` `/orders/getDetail` `/orders/delete` | 是 |
-| collect | `/collect/add` `/collect/get` `/collect/delete` | 是 |
-| management | `/management/getAllOrders` `/management/getOrdersByUserName` `/management/getAllUsers` `/management/deleteUser` `/management/getAllProducts` `/management/getProductsByCategory` `/management/addProduct` `/management/updateProduct` `/management/deleteProduct` `/management/setCategoryHotZero` | 是（管理员） |
+| product | `/product/getAllProduct` `/product/getCategory` `/product/getHotProduct` `/product/getProductBySearch` `/product/getDetails` `/product/getDetailsPicture` | 否 |
+| cart | `/user/shoppingCart/addShoppingCart` `/user/shoppingCart/getShoppingCart` `/user/shoppingCart/updateShoppingCart` `/user/shoppingCart/deleteShoppingCart` `/user/shoppingCart/isExistShoppingCart` | 是 |
+| order | `/user/order/addOrder` `/user/order/getOrder` `/order/getDetails` `/order/deleteOrderById` | 是 |
+| collect | `/user/collect/addCollect` `/user/collect/getCollect` `/user/collect/deleteCollect` | 是 |
+| management | `/management/getAllOrders` `/management/getOrdersByUserName` `/management/getAllUsers` `/resources/carousel` 等 | 是（管理员） |
 | payment | `/payment/create` `/payment/status` `/payment/refund` `/payment/list` | 是 |
 | payment | `/payment/notify` `/payment/mock/pay` | 否 |
 
@@ -182,5 +263,5 @@ JMall/
 
 ## 原始项目参考
 
-- 原始前端：[JMall-Vue](https://github.com/ErizJ/JMall-Vue)（Vue 2 + Element UI）
-- 原始后端：[JMall-Server](https://github.com/ErizJ/JMall-Server)（Koa.js）
+- 前端基于 Vue 2 + Element UI 开发，参考：[JMall-Vue](https://github.com/ErizJ/JMall-Vue)
+- 原始后端：[JMall-Server](https://github.com/ErizJ/JMall-Server)（Koa.js），现已用 go-zero 重构

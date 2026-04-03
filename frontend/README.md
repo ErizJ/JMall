@@ -1,5 +1,84 @@
-# Vue 3 + TypeScript + Vite
+# JMall 前端
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+## 项目简介
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+本项目前后端分离，前端基于 `Vue 2.6` + `Vue Router 3` + `Vuex 3` + `Element UI 2.x` + `Axios`，参考小米商城实现。后端基于 `Go 1.23`（go-zero 微服务框架）+ `MySQL 8.0` + `Redis 7` 实现。
+
+前端包含了 12 个页面：首页、登录、注册、全部商品、商品详情页、关于我们、我的收藏、购物车、订单结算页面、支付页面、我的订单以及错误处理页面。实现了商品展示、商品分类查询、关键字搜索、商品详情、登录、注册、购物车、订单结算、在线支付（模拟支付）、用户订单、用户收藏以及错误处理功能。
+
+## 技术栈
+
+- **前端：** `Vue 2.6` + `Vue Router 3` + `Vuex 3` + `Element UI 2.x` + `Axios`
+- **后端：** `Go 1.23` · `go-zero 1.10`（REST 微服务）
+- **数据库：** `MySQL 8.0` + `Redis 7`
+
+## 功能模块
+
+### 登录
+
+页面使用了 Element UI 的 `Dialog` 实现弹出蒙版对话框的效果，`登录` 按钮设置在 App.vue 根组件，通过 `Vuex` 中的 `showLogin` 状态控制登录框是否显示。
+
+这样设计是为了既可以通过点击页面中的按钮登录，也可以是用户访问需要登录验证的页面或后端返回需要验证登录的提示后自动弹出登录框，减少了页面的跳转，简化用户操作。
+
+前后端都对登录信息进行了校验，前端基于 Element UI 的表单校验方式，自定义了校验规则进行校验。
+
+### 注册
+
+页面同样使用了 Element UI 的 `Dialog` 实现弹出蒙版对话框的效果，`注册` 按钮设置在 App.vue 根组件，通过父子组件传值控制注册框是否显示。
+
+### 首页
+
+首页主要是对商品的展示，有轮播图展示推荐的商品，分类别对热门商品进行展示。
+
+### 全部商品
+
+全部商品页面集成了全部商品展示、商品分类查询，以及根据关键字搜索商品结果展示。
+
+### 商品详情页
+
+商品详情页主要是对某个商品的详细信息进行展示，用户可以在这里把喜欢的商品加入购物车或收藏列表。
+
+### 我的购物车
+
+购物车采用 Vuex 实现，页面效果参考了小米商城的购物车。支持满减助手功能，为用户推荐搭配购组合。
+
+### 订单结算
+
+用户在购物车选择了准备购买的商品后，点击"去结算"按钮，会来到该页面。用户在这里选择收货地址，确认订单的相关信息，然后提交订单。提交成功后自动跳转到支付页面。
+
+### 支付页面
+
+用户提交订单后进入支付页面，展示订单信息和商品清单，选择支付方式（模拟支付 / 微信支付 / 支付宝，后两者暂未开放）。支持创建支付单、模拟确认支付、轮询支付状态，支付成功后可跳转查看订单。
+
+### 我的收藏
+
+用户在商品的详情页，可以通过点击"喜欢"按钮，把喜欢的商品加入到收藏列表。
+
+### 我的订单
+
+对用户的所有订单进行展示，显示订单状态（待支付 / 已支付 / 已取消 / 已退款）。待支付订单提供"去支付"快捷入口。
+
+### 系统管理
+
+管理员可进行商品管理（增删改查）、用户管理、订单管理、满减组合管理等操作。
+
+## 运行项目
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/ErizJ/JMall.git
+
+# 2. 安装依赖
+cd JMall/frontend
+npm install
+
+# 3. 开发模式启动
+npm run serve
+
+# 4. 生产构建
+npm run build
+```
+
+前端 dev server 运行在 `http://localhost:8080`，通过 `vue.config.js` 中的 proxy 配置将 `/api` 请求转发到各后端服务。
+
+**作者** [ErizJ](https://github.com/ErizJ)
