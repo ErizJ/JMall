@@ -130,26 +130,42 @@ const shoppingCart = [
   },
 ]
 
-// ========== 订单 ==========
+// ========== 订单（grouped format） ==========
 let orderIdCounter = Date.now() * 1000
 
 const orders = [
-  [
-    {
-      id: 1, order_id: 1001001, user_id: 1, product_id: 1,
-      product_name: 'Redmi K30', product_picture: `${IMG}/p1/200/200`,
-      product_num: 1, product_price: 1599,
-      order_time: Date.now() - 86400000, status: 1,
-    },
-  ],
-  [
-    {
-      id: 2, order_id: 1002001, user_id: 1, product_id: 3,
-      product_name: '小米CC9 Pro', product_picture: `${IMG}/p3/200/200`,
-      product_num: 2, product_price: 2599,
-      order_time: Date.now() - 3600000, status: 0,
-    },
-  ],
+  {
+    order_id: 1001001, user_id: 1, status: 1,
+    order_time: '2025-03-15 14:30:00',
+    item_count: 1, total_amount: 1599,
+    items: [
+      {
+        id: 1, order_id: 1001001, user_id: 1, product_id: 1,
+        product_name: 'Redmi K30', product_img: `${IMG}/p1/200/200`,
+        product_num: 1, product_price: 1599,
+        order_time: '2025-03-15 14:30:00', status: 1,
+      },
+    ],
+  },
+  {
+    order_id: 1002001, user_id: 1, status: 0,
+    order_time: '2025-04-02 10:15:00',
+    item_count: 3, total_amount: 7797,
+    items: [
+      {
+        id: 2, order_id: 1002001, user_id: 1, product_id: 3,
+        product_name: '小米CC9 Pro', product_img: `${IMG}/p3/200/200`,
+        product_num: 2, product_price: 2599,
+        order_time: '2025-04-02 10:15:00', status: 0,
+      },
+      {
+        id: 3, order_id: 1002001, user_id: 1, product_id: 1,
+        product_name: 'Redmi K30', product_img: `${IMG}/p1/200/200`,
+        product_num: 1, product_price: 2599,
+        order_time: '2025-04-02 10:15:00', status: 0,
+      },
+    ],
+  },
 ]
 
 // ========== 收藏 ==========

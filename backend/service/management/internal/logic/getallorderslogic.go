@@ -42,6 +42,7 @@ func (l *GetAllOrdersLogic) GetAllOrders() (resp *types.GetAllOrdersResp, err er
 			UserName:     row.UserName,
 			ProductID:    row.ProductId,
 			ProductName:  row.ProductName,
+			ProductImg:   row.ProductImg,
 			ProductNum:   row.ProductNum,
 			ProductPrice: row.ProductPrice,
 			OrderTime:    time.Unix(row.OrderTime, 0).Format("2006-01-02 15:04:05"),

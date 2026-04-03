@@ -34,14 +34,10 @@ const routes = [
     path: '/manager',
     name: 'Manager',
     component: () => import('../views/Manager.vue'),
-    children: [ //通过children配置子级路由
+    children: [
       {
         path: '/goodsmanage',
         component: () => import('../components/GoodsManage.vue')
-      },
-      {
-        path: '/uploadgoods',
-        component: () => import('../components/UploadGoods.vue')
       },
       {
         path: '/discountsmanage',
@@ -54,10 +50,6 @@ const routes = [
       {
         path: '/ordersmanage',
         component: () => import('../components/OrdersManage.vue')
-      },
-      {
-        path: '/about',
-        component: () => import('../views/About.vue')
       },
     ]
   },

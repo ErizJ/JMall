@@ -1,171 +1,152 @@
 <!--
- * @Description: 我的购物车页面组件
+ * @Description: 购物车页面
  -->
-
 <template>
-  <div class="shoppingCart">
-    <!-- 购物车头部 -->
-    <div class="cart-header">
-      <div class="cart-header-content">
-        <p>
-          <i
-            class="el-icon-shopping-cart-1"
-            style="color: #409EFF; font-weight: 600"
-          ></i>
-          我的购物车
+  <div class="cart-page">
+    <div class="cart-wrap">
+      <!-- 页面标题 -->
+      <div class="page-title">
+        <h1><i class="el-icon-shopping-cart-2"></i> 我的购物车</h1>
+        <p class="promo-tip" v-if="getShoppingCart.length > 0">
+          <i class="el-icon-present"></i> 满2000减200，满3000减300
         </p>
-        <span>JMall开业特惠，满2000减200，满3000减300！</span>
       </div>
-    </div>
-    <!-- 购物车头部END -->
 
-    <!-- 购物车主要内容区 -->
-    <div class="content" v-if="getShoppingCart.length > 0">
-      <ul>
-        <!-- 购物车表头 -->
-        <li class="header">
-          <div class="pro-check">
+      <!-- 有商品时 -->
+      <template v-if="getShoppingCart.length > 0">
+        <!-- 表头 -->
+        <div class="cart-table-header">
+          <div class="col-check">
             <el-checkbox v-model="isAllCheck">全选</el-checkbox>
           </div>
-          <div class="pro-img"></div>
-          <div class="pro-name">商品名称</div>
-          <div class="pro-price">单价</div>
-          <div class="pro-num">数量</div>
-          <div class="pro-total">小计</div>
-          <div class="pro-action">操作</div>
-        </li>
-        <!-- 购物车表头END -->
+          <div class="col-product">商品信息</div>
+          <div class="col-price">单价</div>
+          <div class="col-qty">数量</div>
+          <div class="col-subtotal">小计</div>
+          <div class="col-action">操作</div>
+        </div>
 
-        <!-- 购物车列表 -->
-        <li
-          class="product-list"
-          v-for="(item, index) in getShoppingCart"
-          :key="item.id"
-        >
-          <div class="pro-check">
-            <el-checkbox
-              :value="item.check"
-              @change="checkChange($event, index)"
-            ></el-checkbox>
+        <!-- 商品列表 -->
+        <div class="cart-items">
+          <div
+            class="cart-item"
+            :class="{ checked: item.check }"
+            v-for="(item, index) in getShoppingCart"
+            :key="item.id"
+          >
+            <div class="col-check">
+              <el-checkbox
+                :value="item.check"
+                @change="checkChange($event, index)"
+              ></el-checkbox>
+            </div>
+            <div class="col-product">
+              <router-link
+                :to="{ path: '/goods/details', query: { productID: item.productID } }"
+                class="product-info"
+              >
+                <img :src="$target + item.productImg" class="product-img" />
+                <span class="product-name">{{ item.productName }}</span>
+              </router-link>
+            </div>
+            <div class="col-price">
+              <span class="price">¥{{ item.price }}</span>
+            </div>
+            <div class="col-qty">
+              <el-input-number
+                size="mini"
+                :value="item.num"
+                @change="handleChange($event, index, item.productID)"
+                :min="1"
+                :max="item.maxNum"
+              ></el-input-number>
+            </div>
+            <div class="col-subtotal">
+              <span class="subtotal">¥{{ (item.price * item.num).toFixed(2) }}</span>
+            </div>
+            <div class="col-action">
+              <el-popconfirm
+                title="确定要删除这件商品吗？"
+                confirm-button-text="删除"
+                cancel-button-text="取消"
+                @confirm="deleteItem(item.id, item.productID)"
+              >
+                <el-button slot="reference" type="text" class="delete-btn">
+                  <i class="el-icon-delete"></i> 删除
+                </el-button>
+              </el-popconfirm>
+            </div>
           </div>
-          <div class="pro-img">
-            <router-link
-              :to="{
-                path: '/goods/details',
-                query: { productID: item.productID },
-              }"
-            >
-              <img :src="$target + item.productImg" />
+        </div>
+
+        <!-- 底部结算栏 -->
+        <div class="cart-footer">
+          <div class="footer-left">
+            <el-checkbox v-model="isAllCheck" class="footer-check">全选</el-checkbox>
+            <router-link to="/goods" class="continue-link">
+              <i class="el-icon-back"></i> 继续购物
+            </router-link>
+            <el-button size="small" plain @click="table = true">
+              <i class="el-icon-magic-stick"></i> 满减助手
+            </el-button>
+          </div>
+          <div class="footer-right">
+            <div class="summary">
+              <span class="summary-count">
+                已选 <em>{{ getCheckNum }}</em> 件，共 {{ getNum }} 件商品
+              </span>
+              <span class="summary-total">
+                合计：<em class="total-amount">¥{{ getTotalPrice.toFixed(2) }}</em>
+              </span>
+            </div>
+            <router-link :to="getCheckNum > 0 ? '/confirmOrder' : ''">
+              <el-button
+                type="danger"
+                size="medium"
+                :disabled="getCheckNum === 0"
+                class="checkout-btn"
+              >
+                去结算 ({{ getCheckNum }})
+              </el-button>
             </router-link>
           </div>
-          <div class="pro-name">
-            <router-link
-              :to="{
-                path: '/goods/details',
-                query: { productID: item.productID },
-              }"
-              >{{ item.productName }}</router-link
-            >
-          </div>
-          <div class="pro-price">{{ item.price }}元</div>
-          <div class="pro-num">
-            <el-input-number
-              size="small"
-              :value="item.num"
-              @change="handleChange($event, index, item.productID)"
-              :min="1"
-              :max="item.maxNum"
-            ></el-input-number>
-          </div>
-          <div class="pro-total pro-total-in">
-            {{ item.price * item.num }}元
-          </div>
-          <div class="pro-action">
-            <el-popover placement="right">
-              <p>确定删除吗？</p>
-              <div style="text-align: right; margin: 10px 0 0">
-                <el-button
-                  type="primary"
-                  size="mini"
-                  @click="deleteItem($event, item.id, item.productID)"
-                  >确定</el-button
-                >
-              </div>
-              <i
-                class="el-icon-error"
-                slot="reference"
-                style="font-size: 18px"
-              ></i>
-            </el-popover>
-          </div>
-        </li>
-        <!-- 购物车列表END -->
-      </ul>
-      <div style="height: 20px; background-color: #f5f5f5"></div>
-      <!-- 购物车底部导航条 -->
-      <div class="cart-bar">
-        <div class="cart-bar-left">
-          <span>
-            <router-link to="/goods">继续购物</router-link>
-          </span>
-          <el-link>
-            <el-button>
-            <i class="el-icon-attract el-icon--left" @click="table = true"
-              >满减助手</i
-            ></el-button>
-          </el-link>
-          <span class="sep">|</span>
-          <span class="cart-total">
-            共
-            <span class="cart-total-num">{{ getNum }}</span> 件商品，已选择
-            <span class="cart-total-num">{{ getCheckNum }}</span> 件
-          </span>
         </div>
-        <div class="cart-bar-right">
-          <span>
-            <span class="total-price-title">合计：</span>
-            <span class="total-price">{{ getTotalPrice }}元</span>
-          </span>
-          <router-link :to="getCheckNum > 0 ? '/confirmOrder' : ''">
-            <div
-              :class="getCheckNum > 0 ? 'btn-primary' : 'btn-primary-disabled'"
-            >
-              去结算
-            </div>
+      </template>
+
+      <!-- 购物车为空 -->
+      <div v-else class="cart-empty">
+        <div class="empty-content">
+          <i class="el-icon-shopping-bag-2 empty-icon"></i>
+          <h2>购物车还是空的</h2>
+          <p>去挑选心仪的商品吧</p>
+          <router-link to="/goods">
+            <el-button type="primary" round>去逛逛</el-button>
           </router-link>
         </div>
       </div>
-      <!-- 购物车底部导航条END -->
     </div>
-    <!-- 购物车主要内容区END -->
-
-    <!-- 购物车为空的时候显示的内容 -->
-    <div v-else class="cart-empty">
-      <div class="empty">
-        <h2>您的购物车还是空的！</h2>
-        <p>快去购物吧！</p>
-      </div>
-    </div>
-    <!-- 购物车为空的时候显示的内容END -->
 
     <!-- 满减助手抽屉 -->
     <el-drawer
-      title="满减神器"
+      title="满减助手"
       :visible.sync="table"
       direction="ltr"
-      size="40%"
+      size="420px"
+      :with-header="true"
     >
-      <div v-for="(item, index) in getShoppingCart" :key="item.id">
-        <FullminusList
-          :item="item"
-          :index="index"
-          @shutDownDrawer="shutDownDrawer"
-        ></FullminusList>
+      <div style="padding: 0 16px">
+        <div v-for="(item, index) in getShoppingCart" :key="item.id">
+          <FullminusList
+            :item="item"
+            :index="index"
+            @shutDownDrawer="shutDownDrawer"
+          ></FullminusList>
+        </div>
       </div>
     </el-drawer>
-    <!-- 满减助手抽屉END -->
   </div>
 </template>
+
 <script>
 import { mapActions } from 'vuex'
 import { mapGetters } from 'vuex'
@@ -178,11 +159,8 @@ export default {
   components: { FullminusList },
   methods: {
     ...mapActions(['updateShoppingCart', 'deleteShoppingCart', 'checkAll']),
-    // 修改商品数量的时候调用该函数
     handleChange(currentValue, key, productID) {
-      // 当修改数量时，默认勾选
       this.updateShoppingCart({ key: key, prop: 'check', val: true })
-      // 向后端发起更新购物车的数据库信息请求
       this.$axios
         .post('/api/user/shoppingCart/updateShoppingCart', {
           user_id: this.$store.getters.getUser.user_id,
@@ -190,340 +168,260 @@ export default {
           num: currentValue,
         })
         .then((res) => {
-          switch (res.data.code) {
-            case '001':
-              // “001”代表更新成功
-              // 更新vuex状态
-              this.updateShoppingCart({
-                key: key,
-                prop: 'num',
-                val: currentValue,
-              })
-              // 提示更新成功信息
-              this.notifySucceed(res.data.msg)
-
-              break
-            default:
-              // 提示更新失败信息
-              this.notifyError(res.data.msg)
+          if (res.data.code === '001') {
+            this.updateShoppingCart({ key: key, prop: 'num', val: currentValue })
+            this.notifySucceed(res.data.msg)
+          } else {
+            this.notifyError(res.data.msg)
           }
         })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
+        .catch((err) => Promise.reject(err))
     },
     checkChange(val, key) {
-      // 更新vuex中购物车商品是否勾选的状态
-      console.log('val+key', val, key, this.getShoppingCart)
       this.updateShoppingCart({ key: key, prop: 'check', val: val })
     },
-    // 向后端发起删除购物车的数据库信息请求
-    deleteItem(e, id, productID) {
+    deleteItem(id, productID) {
       this.$axios
         .post('/api/user/shoppingCart/deleteShoppingCart', {
           user_id: this.$store.getters.getUser.user_id,
           product_id: productID,
         })
         .then((res) => {
-          switch (res.data.code) {
-            case '001':
-              // “001” 删除成功
-              // 更新vuex状态
-              this.deleteShoppingCart(id)
-              // 提示删除成功信息
-              this.notifySucceed(res.data.msg)
-
-              break
-            default:
-              // 提示删除失败信息
-              this.notifyError(res.data.msg)
+          if (res.data.code === '001') {
+            this.deleteShoppingCart(id)
+            this.notifySucceed(res.data.msg)
+          } else {
+            this.notifyError(res.data.msg)
           }
         })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
+        .catch((err) => Promise.reject(err))
     },
     shutDownDrawer() {
       this.table = false
     },
   },
   computed: {
-    ...mapGetters([
-      'getShoppingCart',
-      'getCheckNum',
-      'getTotalPrice',
-      'getNum',
-    ]),
+    ...mapGetters(['getShoppingCart', 'getCheckNum', 'getTotalPrice', 'getNum']),
     isAllCheck: {
-      get() {
-        return this.$store.getters.getIsAllCheck
-      },
-      set(val) {
-        this.checkAll(val)
-      },
+      get() { return this.$store.getters.getIsAllCheck },
+      set(val) { this.checkAll(val) },
     },
   },
 }
 </script>
+
 <style scoped>
-.shoppingCart {
-  background-color: #f5f5f5;
-  padding-bottom: 20px;
-  height: 600px;
+.cart-page {
+  background: var(--bg, #f5f5f5);
+  min-height: calc(100vh - 260px);
+  padding: 24px 0 40px;
 }
-/* 购物车头部CSS */
-.shoppingCart .cart-header {
-  height: 64px;
-  border-bottom: 2px solid #409EFF;
-  background-color: #fff;
+.cart-wrap {
+  max-width: var(--content-width, 1226px);
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* 页面标题 */
+.page-title {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
   margin-bottom: 20px;
 }
-.shoppingCart .cart-header .cart-header-content {
-  width: 1225px;
-  margin: 0 auto;
+.page-title h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text, #333);
 }
-.shoppingCart .cart-header p {
-  font-size: 28px;
-  line-height: 58px;
-  float: left;
-  font-weight: normal;
-  color: #424242;
+.page-title h1 i {
+  color: var(--primary, #ff6700);
+  margin-right: 4px;
 }
-.shoppingCart .cart-header span {
-  color: #757575;
+.promo-tip {
   font-size: 12px;
-  float: left;
-  height: 20px;
-  line-height: 20px;
-  margin-top: 30px;
-  margin-left: 15px;
+  color: #f56c6c;
+  background: #fef0f0;
+  padding: 4px 12px;
+  border-radius: 12px;
 }
-/* 购物车头部CSS END */
+.promo-tip i { margin-right: 2px; }
 
-/* 购物车主要内容区CSS */
-.shoppingCart {
-  height: auto;
-  background-color: rgb(245, 245, 245);
+/* 表头 */
+.cart-table-header {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  background: #fff;
+  border-radius: 8px 8px 0 0;
+  padding: 0 20px;
+  font-size: 13px;
+  color: #999;
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.shoppingCart .content {
-  width: 1225px;
-  height: auto;
-  margin: 0 auto;
-  background-color: #fff;
-}
+/* 列宽 */
+.col-check { width: 60px; flex-shrink: 0; }
+.col-product { flex: 1; min-width: 0; }
+.col-price { width: 120px; text-align: center; flex-shrink: 0; }
+.col-qty { width: 150px; text-align: center; flex-shrink: 0; }
+.col-subtotal { width: 120px; text-align: center; flex-shrink: 0; }
+.col-action { width: 100px; text-align: center; flex-shrink: 0; }
 
-.shoppingCart .content ul {
-  background-color: #fff;
-  color: #424242;
-  line-height: 85px;
+/* 商品行 */
+.cart-items {
+  background: #fff;
+  border-radius: 0 0 8px 8px;
 }
-/* 购物车表头及CSS */
-.shoppingCart .content ul .header {
-  height: 85px;
-  padding-right: 26px;
-  color: #424242;
+.cart-item {
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #f5f5f5;
+  transition: background 0.15s;
 }
-.shoppingCart .content ul .product-list {
-  height: 85px;
-  padding: 15px 26px 15px 0;
-  border-top: 1px solid #e0e0e0;
+.cart-item:last-child { border-bottom: none; }
+.cart-item:hover { background: #fafafa; }
+.cart-item.checked { background: #fff8f0; }
+
+/* 商品信息 */
+.product-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: inherit;
 }
-.shoppingCart .content ul .pro-check {
-  float: left;
-  height: 85px;
-  width: 110px;
-}
-.shoppingCart .content ul .pro-check .el-checkbox {
-  font-size: 16px;
-  margin-left: 24px;
-}
-.shoppingCart .content ul .pro-img {
-  float: left;
-  height: 85px;
-  width: 120px;
-}
-.shoppingCart .content ul .pro-img img {
+.product-img {
+  width: 80px;
   height: 80px;
-  width: 80px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #f9f9f9;
+  border: 1px solid #f0f0f0;
+  flex-shrink: 0;
 }
-.shoppingCart .content ul .pro-name {
-  float: left;
-  width: 380px;
-}
-.shoppingCart .content ul .pro-name a {
-  color: #424242;
-}
-.shoppingCart .content ul .pro-name a:hover {
-  color: #409eff;
-}
-.shoppingCart .content ul .pro-price {
-  float: left;
-  width: 140px;
-  padding-right: 18px;
-  text-align: center;
-}
-.shoppingCart .content ul .pro-num {
-  float: left;
-  width: 150px;
-  text-align: center;
-}
-.shoppingCart .content ul .pro-total {
-  float: left;
-  width: 120px;
-  padding-right: 81px;
-  text-align: right;
-}
-.shoppingCart .content ul .pro-total-in {
-  color: #409EFF;
-}
-.shoppingCart .content ul .pro-action {
-  float: left;
-  width: 80px;
-  text-align: center;
-}
-.shoppingCart .content ul .pro-action i:hover {
-  color: #409EFF;
-}
-/* 购物车表头及CSS END */
-
-/* 购物车底部导航条CSS */
-.shoppingCart .cart-bar {
-  width: 1225px;
-  height: 50px;
-  line-height: 50px;
-  background-color: #fff;
-}
-.shoppingCart .cart-bar .cart-bar-left {
-  float: left;
-}
-.shoppingCart .cart-bar .cart-bar-left a {
-  line-height: 50px;
-  margin-left: 32px;
-  color: #757575;
-}
-.shoppingCart .cart-bar .cart-bar-left a:hover {
-  color: #409EFF;
-}
-.shoppingCart .cart-bar .cart-bar-left .sep {
-  color: #eee;
-  margin: 0 20px;
-}
-.shoppingCart .cart-bar .cart-bar-left .cart-total {
-  color: #757575;
-}
-.shoppingCart .cart-bar .cart-bar-left .cart-total-num {
-  color: #409EFF;
-}
-.shoppingCart .cart-bar .cart-bar-right {
-  float: right;
-}
-.shoppingCart .cart-bar .cart-bar-right .total-price-title {
-  color: #409EFF;
+.product-name {
   font-size: 14px;
-}
-.shoppingCart .cart-bar .cart-bar-right .total-price {
-  color: #409EFF;
-  font-size: 30px;
-}
-.shoppingCart .cart-bar .cart-bar-right .btn-primary {
-  float: right;
-  width: 200px;
-  text-align: center;
-  font-size: 18px;
-  margin-left: 50px;
-  background: #409EFF;
-  color: #fff;
-}
-.shoppingCart .cart-bar .cart-bar-right .btn-primary-disabled {
-  float: right;
-  width: 200px;
-  text-align: center;
-  font-size: 18px;
-  margin-left: 50px;
-  background: #e0e0e0;
-  color: #b0b0b0;
-}
-.shoppingCart .cart-bar .cart-bar-right .btn-primary:hover {
-  background-color: #409EFF;
-}
-/* 购物车底部导航条CSS END */
-/* 购物车主要内容区CSS END */
-
-/* 购物车为空的时候显示的内容CSS */
-.shoppingCart .cart-empty {
-  width: 1225px;
-  margin: 0 auto;
-}
-.shoppingCart .cart-empty .empty {
-  height: 300px;
-  padding: 0 0 130px 558px;
-  margin: 65px 0 0;
-  background: url(../assets/imgs/cart-empty.png) no-repeat 124px 0;
-  color: #b0b0b0;
+  color: var(--text, #333);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.shoppingCart .cart-empty .empty h2 {
-  margin: 70px 0 15px;
-  font-size: 36px;
+.product-info:hover .product-name {
+  color: var(--primary, #ff6700);
 }
-.shoppingCart .cart-empty .empty p {
-  margin: 0 0 20px;
-  font-size: 20px;
-}
-/* 购物车为空的时候显示的内容CSS END */
 
-.text {
+/* 价格 */
+.price {
   font-size: 14px;
+  color: var(--text-secondary, #666);
 }
 
-.item {
-  margin-bottom: 5px;
+/* 小计 */
+.subtotal {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary, #ff6700);
 }
 
-.clearfix:before,
-.clearfix:after {
-  display: table;
-  content: '';
+/* 删除 */
+.delete-btn {
+  color: #999 !important;
+  font-size: 13px;
 }
-.clearfix:after {
-  clear: both;
+.delete-btn:hover {
+  color: #f56c6c !important;
 }
 
-.box-card {
-  width: auto;
-  margin: 10px;
+/* 底部结算栏 */
+.cart-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
-.box-card .box-card {
-  display: inline-block;
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
-.box-card img {
-  display: block;
-  margin: 0 auto;
+.footer-check {
+  font-size: 13px;
 }
-.box-card span,
-p,
-h2,
-h3 {
+.continue-link {
+  font-size: 13px;
+  color: #999;
+  transition: color 0.2s;
+}
+.continue-link:hover { color: var(--primary, #ff6700); }
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.summary-count {
+  font-size: 13px;
+  color: #999;
+}
+.summary-count em {
+  font-style: normal;
+  color: var(--primary, #ff6700);
+  font-weight: 500;
+}
+.summary-total {
+  font-size: 14px;
+  color: var(--text, #333);
+}
+.total-amount {
+  font-style: normal;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--primary, #ff6700);
+}
+.checkout-btn {
+  height: 44px;
+  padding: 0 36px;
+  font-size: 16px;
+  border-radius: 22px;
+}
+
+/* 空购物车 */
+.cart-empty {
+  padding: 80px 0;
+}
+.empty-content {
   text-align: center;
 }
-
-.del {
-  margin-left: 0.5em;
-  color: #b0b0b0;
-  text-decoration: line-through;
+.empty-icon {
+  font-size: 80px;
+  color: #ddd;
+  margin-bottom: 16px;
 }
-
-.priceDiscount {
-  height: 20px;
-  float: right;
-  margin-bottom: 20px;
-}
-
-.priceDiscount span {
-  text-align: right;
+.empty-content h2 {
   font-size: 20px;
-  color: red;
-  font-family: 'Times New Roman', Times, serif;
+  color: #999;
+  font-weight: 400;
+  margin-bottom: 8px;
+}
+.empty-content p {
+  font-size: 14px;
+  color: #bbb;
+  margin-bottom: 24px;
 }
 </style>

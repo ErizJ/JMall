@@ -1,20 +1,16 @@
 <!--
- * @Description: 菜单组件，用于首页商品展示模块的右上角菜单
+ * @Description: 标签切换菜单组件
  -->
 <template>
-  <div class="myMenu" id="myMenu">
-    <ul>
-      <li
-        v-for="item in val"
-        :key="item"
-        :class="activeClass == item ? 'active':''"
-        @mouseover="mouseover($event,item)"
-      >
-        <router-link to>
-          <slot :name="item"></slot>
-        </router-link>
-      </li>
-    </ul>
+  <div class="tab-menu">
+    <span
+      v-for="item in val"
+      :key="item"
+      :class="['tab-item', activeClass == item ? 'active' : '']"
+      @click="select(item)"
+    >
+      <slot :name="item"></slot>
+    </span>
   </div>
 </template>
 <script>
@@ -22,37 +18,26 @@ export default {
   props: ['val'],
   name: 'MyMenu',
   data() {
-    return {
-      activeClass: 1,
-    }
+    return { activeClass: 1 }
   },
   methods: {
-    // 通过mouseover事件控制当前显示的商品分类，1为该类别的热门商品
-    mouseover(e, val) {
+    select(val) {
       this.activeClass = val
     },
   },
   watch: {
-    // 向父组件传过去当前要显示的商品分类，从而更新商品列表
-    activeClass: function (val) {
+    activeClass(val) {
       this.$emit('fromChild', val)
     },
   },
 }
 </script>
 <style scoped>
-#myMenu li {
-  float: left;
-  margin-left: 30px;
+.tab-menu { display: flex; gap: 4px; }
+.tab-item {
+  padding: 4px 14px; font-size: 13px; color: var(--text-secondary, #666);
+  border-radius: 16px; cursor: pointer; transition: all 0.2s; user-select: none;
 }
-
-#myMenu a:hover {
-  color: #ff6700;
-  border-bottom: 2px solid #ff6700;
-}
-
-#myMenu .active a {
-  color: #ff6700;
-  border-bottom: 2px solid #ff6700;
-}
+.tab-item:hover { color: var(--primary, #ff6700); background: rgba(255, 103, 0, 0.06); }
+.tab-item.active { color: #fff; background: var(--primary, #ff6700); }
 </style>

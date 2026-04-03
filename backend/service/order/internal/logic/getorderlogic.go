@@ -1,6 +1,3 @@
-// Code scaffolded by goctl. Safe to edit.
-// goctl 1.10.1
-
 package logic
 
 import (
@@ -37,9 +34,9 @@ func (l *GetOrderLogic) GetOrder(req *types.GetOrderReq) (resp *types.GetOrderRe
 
 	cacheKey := fmt.Sprintf("jmall:orders:user:%d", userID)
 
-	var orders []types.OrderItem
-	if cacheErr := l.svcCtx.Cache.Get(l.ctx, cacheKey, &orders); cacheErr == nil {
-		return &types.GetOrderResp{Code: "200", Orders: orders}, nil
+	var groups []types.OrderGroup
+	if cacheErr := l.svcCtx.Cache.Get(l.ctx, cacheKey, &groups); cacheErr == nil {
+		return &types.GetOrderResp{Code: "200", Orders: groups}, nil
 	}
 
 	rows, err := l.svcCtx.OrdersModel.FindByUserId(l.ctx, userID)
@@ -47,7 +44,7 @@ func (l *GetOrderLogic) GetOrder(req *types.GetOrderReq) (resp *types.GetOrderRe
 		return nil, err
 	}
 
-	// Batch fetch products to avoid N+1
+	// Batch fetch products
 	productIDs := make([]int64, 0, len(rows))
 	for _, row := range rows {
 		productIDs = append(productIDs, row.ProductId)
@@ -61,10 +58,12 @@ func (l *GetOrderLogic) GetOrder(req *types.GetOrderReq) (resp *types.GetOrderRe
 		productMap[p.ProductId] = struct{ name, img string }{p.ProductName, p.ProductPicture.String}
 	}
 
-	orders = make([]types.OrderItem, 0, len(rows))
+	// Group by order_id (preserve insertion order)
+	orderMap := make(map[int64]*types.OrderGroup)
+	var orderIDs []int64
 	for _, row := range rows {
 		p := productMap[row.ProductId]
-		orders = append(orders, types.OrderItem{
+		item := types.OrderItem{
 			ID:           row.Id,
 			OrderID:      row.OrderId,
 			UserID:       row.UserId,
@@ -75,12 +74,29 @@ func (l *GetOrderLogic) GetOrder(req *types.GetOrderReq) (resp *types.GetOrderRe
 			ProductPrice: row.ProductPrice,
 			OrderTime:    time.Unix(row.OrderTime, 0).Format("2006-01-02 15:04:05"),
 			Status:       row.Status,
-		})
+		}
+
+		g, exists := orderMap[row.OrderId]
+		if !exists {
+			g = &types.OrderGroup{
+				OrderID:   row.OrderId,
+				UserID:    row.UserId,
+				Status:    row.Status,
+				OrderTime: time.Unix(row.OrderTime, 0).Format("2006-01-02 15:04:05"),
+			}
+			orderMap[row.OrderId] = g
+			orderIDs = append(orderIDs, row.OrderId)
+		}
+		g.Items = append(g.Items, item)
+		g.ItemCount += row.ProductNum
+		g.TotalAmount += row.ProductPrice * float64(row.ProductNum)
 	}
 
-	_ = l.svcCtx.Cache.Set(l.ctx, cacheKey, orders, 2*time.Minute)
-	return &types.GetOrderResp{
-		Code:   "200",
-		Orders: orders,
-	}, nil
+	groups = make([]types.OrderGroup, 0, len(orderIDs))
+	for _, oid := range orderIDs {
+		groups = append(groups, *orderMap[oid])
+	}
+
+	_ = l.svcCtx.Cache.Set(l.ctx, cacheKey, groups, 2*time.Minute)
+	return &types.GetOrderResp{Code: "200", Orders: groups}, nil
 }

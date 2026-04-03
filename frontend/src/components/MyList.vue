@@ -1,61 +1,54 @@
 <!--
- * @Description: 列表组件，用于首页、全部商品页面的商品列表
+ * @Description: 商品卡片列表组件
  -->
 <template>
-  <div id="myList" class="myList">
-    <ul>
-      <li v-for="item in list" :key="item.product_id">
-        <el-popover placement="top">
-          <p>确定删除吗？</p>
-          <div style="text-align: right; margin: 10px 0 0">
-            <el-button type="primary" size="mini" @click="deleteCollect(item.product_id)">确定</el-button>
+  <div class="product-grid">
+    <div class="product-card" v-for="item in list" :key="item.product_id">
+      <el-popover placement="top" v-if="isDelete">
+        <p>确定删除吗？</p>
+        <div style="text-align: right; margin: 10px 0 0">
+          <el-button type="primary" size="mini" @click="deleteCollect(item.product_id)">确定</el-button>
+        </div>
+        <i class="el-icon-close card-delete" slot="reference"></i>
+      </el-popover>
+      <router-link :to="{ path: '/goods/details', query: { productID: item.product_id } }" class="card-link">
+        <div class="card-img">
+          <img :src="$target + item.product_picture" alt="" />
+        </div>
+        <div class="card-info">
+          <h3 class="card-name">{{ item.product_name }}</h3>
+          <p class="card-desc">{{ item.product_title }}</p>
+          <div class="card-price">
+            <span class="price-now">¥{{ item.product_selling_price }}</span>
+            <span class="price-old" v-show="item.product_price != item.product_selling_price">
+              ¥{{ item.product_price }}
+            </span>
           </div>
-          <i class="el-icon-close delete" slot="reference" v-show="isDelete"></i>
-        </el-popover>
-        <router-link :to="{ path: '/goods/details', query: {productID:item.product_id} }">
-          <img :src="$target +item.product_picture" alt />
-          <h2>{{item.product_name}}</h2>
-          <h3>{{item.product_title}}</h3>
-          <p>
-            <span>{{item.product_selling_price}}元</span>
-            <span
-              v-show="item.product_price != item.product_selling_price"
-              class="del"
-            >{{item.product_price}}元</span>
-          </p>
-        </router-link>
-      </li>
-      <li v-show="isMore && list.length>=1" id="more">
-        <router-link :to="{ path: '/goods', query: {categoryID:categoryID} }">
-          浏览更多
-          <i class="el-icon-d-arrow-right"></i>
-        </router-link>
-      </li>
-    </ul>
+        </div>
+      </router-link>
+    </div>
+    <div class="product-card more-card" v-show="isMore && list.length >= 1">
+      <router-link :to="{ path: '/goods', query: { categoryID: categoryID } }" class="more-link">
+        <i class="el-icon-right"></i>
+        <span>浏览更多</span>
+      </router-link>
+    </div>
   </div>
 </template>
 <script>
 export default {
   name: 'MyList',
-  // list为父组件传过来的商品列表
-  // isMore为是否显示“浏览更多”
   props: ['list', 'isMore', 'isDelete'],
-  data() {
-    return {}
-  },
   computed: {
-    // 通过list获取当前显示的商品的分类ID，用于“浏览更多”链接的参数
-    categoryID: function () {
-      let categoryID = []
-      if (this.list != '') {
+    categoryID() {
+      let ids = []
+      if (this.list && this.list.length) {
         for (let i = 0; i < this.list.length; i++) {
           const id = this.list[i].category_id
-          if (!categoryID.includes(id)) {
-            categoryID.push(id)
-          }
+          if (!ids.includes(id)) ids.push(id)
         }
       }
-      return categoryID
+      return ids
     },
   },
   methods: {
@@ -66,110 +59,95 @@ export default {
           product_id: product_id,
         })
         .then((res) => {
-          switch (res.data.code) {
-            case '001':
-              // 删除成功
-              // 删除删除列表中的该商品信息
-              for (let i = 0; i < this.list.length; i++) {
-                const temp = this.list[i]
-                if (temp.product_id == product_id) {
-                  this.list.splice(i, 1)
-                }
+          if (res.data.code === '001') {
+            for (let i = 0; i < this.list.length; i++) {
+              if (this.list[i].product_id == product_id) {
+                this.list.splice(i, 1)
+                break
               }
-              // 提示删除成功信息
-              this.notifySucceed(res.data.msg)
-              break
-            default:
-              // 提示删除失败信息
-              this.notifyError(res.data.msg)
+            }
+            this.notifySucceed(res.data.msg)
+          } else {
+            this.notifyError(res.data.msg)
           }
         })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
+        .catch((err) => Promise.reject(err))
     },
   },
 }
 </script>
 <style scoped>
-.myList ul li {
-  z-index: 1;
-  float: left;
-  width: 234px;
-  height: 280px;
-  padding: 10px 0;
-  margin: 0 0 14.5px 13.7px;
-  background-color: white;
-  -webkit-transition: all 0.2s linear;
-  transition: all 0.2s linear;
+.product-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.product-card {
+  width: 228px;
+  background: var(--bg-white, #fff);
+  border-radius: var(--radius, 8px);
+  overflow: hidden;
+  transition: all 0.25s ease;
   position: relative;
+  border: 1px solid transparent;
 }
-.myList ul li:hover {
-  z-index: 2;
-  -webkit-box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
-  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
-  -webkit-transform: translate3d(0, -2px, 0);
-  transform: translate3d(0, -2px, 0);
+.product-card:hover {
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,0.1));
+  transform: translateY(-4px);
+  border-color: var(--border, #eee);
 }
-.myList ul li img {
-  display: block;
-  width: 160px;
-  height: 160px;
-  background: url(../assets/imgs/placeholder.png) no-repeat 50%;
-  margin: 0 auto;
-}
-.myList ul li h2 {
-  margin: 25px 10px 0;
-  font-size: 14px;
-  font-weight: 400;
-  color: #333;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+.card-link { display: block; color: inherit; }
+
+.card-img {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg, #fafafa);
   overflow: hidden;
+  padding: 16px;
 }
-.myList ul li h3 {
-  margin: 5px 10px;
-  height: 18px;
-  font-size: 12px;
-  font-weight: 400;
-  color: #b0b0b0;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow: hidden;
+.card-img img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.3s;
 }
-.myList ul li p {
-  margin: 10px 10px 10px;
-  text-align: center;
-  color: #ff6700;
+.product-card:hover .card-img img { transform: scale(1.05); }
+
+.card-info { padding: 12px 16px 16px; }
+.card-name {
+  font-size: 14px; font-weight: 500; color: var(--text, #333);
+  line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;
 }
-.myList ul li p .del {
-  margin-left: 0.5em;
-  color: #b0b0b0;
-  text-decoration: line-through;
+.card-desc {
+  font-size: 12px; color: var(--text-muted, #999);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 10px; line-height: 1.4;
 }
-.myList #more {
-  text-align: center;
-  line-height: 280px;
+.card-price { display: flex; align-items: baseline; gap: 6px; }
+.price-now { font-size: 18px; font-weight: 600; color: var(--primary, #ff6700); }
+.price-old { font-size: 12px; color: var(--text-muted, #bbb); text-decoration: line-through; }
+
+.card-delete {
+  position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; line-height: 24px;
+  text-align: center; border-radius: 50%; background: rgba(0,0,0,0.4); color: #fff;
+  font-size: 12px; cursor: pointer; opacity: 0; transition: opacity 0.2s; z-index: 2;
 }
-.myList #more a {
-  font-size: 18px;
-  color: #333;
+.product-card:hover .card-delete { opacity: 1; }
+.card-delete:hover { background: #f56c6c; }
+
+.more-card {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg, #fafafa); border: 1px dashed var(--border, #ddd);
 }
-.myList #more a:hover {
-  color: #ff6700;
+.more-card:hover { border-color: var(--primary, #ff6700); background: var(--bg-white, #fff); }
+.more-link {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: var(--text-muted, #999); font-size: 14px;
 }
-.myList ul li .delete {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: none;
-}
-.myList ul li:hover .delete {
-  display: block;
-}
-.myList ul li .delete:hover {
-  color: #ff6700;
-}
+.more-link i { font-size: 28px; color: var(--border, #ccc); transition: color 0.2s; }
+.more-card:hover .more-link, .more-card:hover .more-link i { color: var(--primary, #ff6700); }
 </style>

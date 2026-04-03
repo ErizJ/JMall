@@ -1,6 +1,3 @@
-// Code scaffolded by goctl. Safe to edit.
-// goctl 1.10.1
-
 package logic
 
 import (
@@ -32,8 +29,10 @@ func (l *GetOrderDetailLogic) GetOrderDetail(req *types.GetOrderDetailReq) (resp
 	if err != nil {
 		return nil, err
 	}
+	if len(rows) == 0 {
+		return &types.GetOrderDetailResp{Code: "002"}, nil
+	}
 
-	// Batch fetch products to avoid N+1 queries
 	productIDs := make([]int64, 0, len(rows))
 	for _, row := range rows {
 		productIDs = append(productIDs, row.ProductId)
@@ -47,10 +46,15 @@ func (l *GetOrderDetailLogic) GetOrderDetail(req *types.GetOrderDetailReq) (resp
 		productMap[p.ProductId] = struct{ name, img string }{p.ProductName, p.ProductPicture.String}
 	}
 
-	orders := make([]types.OrderItem, 0, len(rows))
+	group := types.OrderGroup{
+		OrderID:   rows[0].OrderId,
+		UserID:    rows[0].UserId,
+		Status:    rows[0].Status,
+		OrderTime: time.Unix(rows[0].OrderTime, 0).Format("2006-01-02 15:04:05"),
+	}
 	for _, row := range rows {
 		p := productMap[row.ProductId]
-		orders = append(orders, types.OrderItem{
+		group.Items = append(group.Items, types.OrderItem{
 			ID:           row.Id,
 			OrderID:      row.OrderId,
 			UserID:       row.UserId,
@@ -62,10 +66,9 @@ func (l *GetOrderDetailLogic) GetOrderDetail(req *types.GetOrderDetailReq) (resp
 			OrderTime:    time.Unix(row.OrderTime, 0).Format("2006-01-02 15:04:05"),
 			Status:       row.Status,
 		})
+		group.ItemCount += row.ProductNum
+		group.TotalAmount += row.ProductPrice * float64(row.ProductNum)
 	}
 
-	return &types.GetOrderDetailResp{
-		Code:   "200",
-		Orders: orders,
-	}, nil
+	return &types.GetOrderDetailResp{Code: "200", Order: group}, nil
 }

@@ -102,9 +102,10 @@ type MgmtOrderItem struct {
 	ID           int64   `json:"id"`
 	OrderID      int64   `json:"order_id"`
 	UserID       int64   `json:"user_id"`
-	UserName     string  `json:"userName"`
+	UserName     string  `json:"user_name"`
 	ProductID    int64   `json:"product_id"`
-	ProductName  string  `json:"productName"`
+	ProductName  string  `json:"product_name"`
+	ProductImg   string  `json:"product_picture"`
 	ProductNum   int64   `json:"product_num"`
 	ProductPrice float64 `json:"product_price"`
 	OrderTime    string  `json:"order_time"`

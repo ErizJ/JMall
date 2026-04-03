@@ -1,357 +1,141 @@
 <template>
-  <el-container>
-    <el-main>
-      <div class="el-main-up">
-        <el-input placeholder="输入商品类别搜索" v-model="search">
-          <el-button @click="searchit" slot="append">搜索</el-button>
+  <div class="manage-page">
+    <div class="manage-header">
+      <h2>商品管理</h2>
+      <div class="header-actions">
+        <el-input placeholder="按分类名搜索" v-model="search" size="small" style="width:220px" clearable @clear="searchit" @keyup.enter.native="searchit">
+          <el-button slot="append" icon="el-icon-search" @click="searchit"></el-button>
         </el-input>
+        <el-button type="primary" size="small" icon="el-icon-plus" @click="openUpload">上架商品</el-button>
       </div>
-      <div class="el-main-down">
-        <el-table
-          :data="tableData"
-          show-header
-          border
-          fit
-          height="569px"
-          :row-style="{ height: '160px' }"
-          :cell-style="{ padding: '0' }"
-          v-loading="loading"
-          element-loading-spinner="el-icon-loading"
-          empty-text="当前暂无数据噢~"
-        >
-          <el-table-column
-            fixed
-            prop="product_name"
-            label="商品名称"
-            width="120"
-          ></el-table-column>
-          <el-table-column
-            prop="product_picture"
-            label="商品图片"
-            fixed
-            width="120"
-          >
-            <template slot-scope="scope">
-              <el-popover placement="top-start" title="" trigger="hover">
-                <img
-                  :src="$target + scope.row.product_picture"
-                  alt=""
-                  style="width: 180px; height: 180px"
-                />
-                <img
-                  slot="reference"
-                  :src="$target + scope.row.product_picture"
-                  style="width: 80px; height: 80px"
-                />
-              </el-popover>
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="product_id"
-            label="商品ID"
-            width="150"
-          ></el-table-column>
-          <el-table-column
-            prop="category_id"
-            label="商品类别ID"
-            width="120"
-          ></el-table-column>
-          <el-table-column
-            prop="product_title"
-            label="商品标题"
-            width="120"
-          ></el-table-column>
-          <el-table-column
-            prop="product_intro"
-            label="商品具体信息"
-            width="300"
-          ></el-table-column>
-          <el-table-column
-            prop="product_price"
-            label="商品原价"
-            width="120"
-            sortable
-          ></el-table-column>
-          <el-table-column
-            prop="product_selling_price"
-            label="商品现价"
-            width="120"
-            sortable
-          ></el-table-column>
-          <el-table-column
-            prop="product_num"
-            label="商品数量"
-            width="120"
-            sortable
-          ></el-table-column>
-          <el-table-column
-            prop="product_isPromotion"
-            label="是否促销商品"
-            width="120"
-          ></el-table-column>
-          <el-table-column
-            prop="product_hot"
-            label="商品热度"
-            width="120"
-            sortable
-          ></el-table-column>
-          <el-table-column fixed="right" label="操作" width="220">
-            <template slot-scope="scope">
-              <el-row>
-                <el-button
-                  type="primary"
-                  size="small"
-                  @click="handleClick('show', scope.row)"
-                  >查看</el-button
-                >
-                <el-button
-                  type="success"
-                  size="small"
-                  @click="handleClick('edit', scope.row)"
-                  >编辑</el-button
-                >
+    </div>
 
-                <el-button
-                  type="danger"
-                  size="small"
-                  @click="handleClick('delete', scope.row)"
-                  >下架</el-button
-                >
-              </el-row>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-pagination
-          layout="total,prev, pager, next"
-          :total="totalTableData.length"
-          :page-size="pageSize"
-          @current-change="handleCurrentChange"
-          :current-page="currentPage"
-          style="padding-top: 10px; float: right"
-        ></el-pagination>
-      </div>
-    </el-main>
+    <el-card shadow="never" class="manage-card">
+      <el-table :data="tableData" border fit size="small" v-loading="loading" empty-text="暂无商品"
+        :header-cell-style="{ background:'#fafafa', color:'#333', fontWeight:600 }">
+        <el-table-column prop="product_id" label="ID" width="60" align="center"></el-table-column>
+        <el-table-column label="商品" min-width="260">
+          <template slot-scope="{ row }">
+            <div class="cell-product">
+              <img :src="$target + row.product_picture" class="thumb" />
+              <div><p class="name">{{ row.product_name }}</p><p class="sub">{{ row.product_title }}</p></div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="价格" width="130" align="center">
+          <template slot-scope="{ row }">
+            <span class="c-price">¥{{ row.product_selling_price }}</span>
+            <span class="c-old" v-if="row.product_price !== row.product_selling_price">¥{{ row.product_price }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="product_num" label="库存" width="70" align="center" sortable></el-table-column>
+        <el-table-column label="促销" width="65" align="center">
+          <template slot-scope="{ row }">
+            <el-tag size="mini" :type="row.product_isPromotion ? 'danger' : 'info'">{{ row.product_isPromotion ? '是' : '否' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="product_hot" label="热度" width="65" align="center" sortable></el-table-column>
+        <el-table-column label="操作" width="160" align="center" fixed="right">
+          <template slot-scope="{ row }">
+            <el-button type="text" size="mini" @click="handleClick('show', row)">查看</el-button>
+            <el-button type="text" size="mini" @click="handleClick('edit', row)">编辑</el-button>
+            <el-button type="text" size="mini" style="color:#f56c6c" @click="handleClick('delete', row)">下架</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="pagi"><el-pagination background layout="total,prev,pager,next" :total="totalTableData.length" :page-size="pageSize" :current-page.sync="currentPage"></el-pagination></div>
+    </el-card>
 
-    <GoodDetailDialog
-      :dialogVisible="dialogVisible"
-      :title="detailTitle"
-      :operateType="operateType"
-      :dialogInfo="dialogInfo"
-      @close="closeDetailDialog"
-    ></GoodDetailDialog>
-  </el-container>
+    <!-- 查看/编辑弹框 -->
+    <GoodDetailDialog :dialogVisible="dialogVisible" :title="detailTitle" :operateType="operateType" :dialogInfo="dialogInfo" @close="dialogVisible=false"></GoodDetailDialog>
+
+    <!-- 上架商品弹框 -->
+    <el-dialog title="上架新商品" :visible.sync="uploadVisible" width="560px" @close="resetUploadForm">
+      <el-form :model="uploadForm" label-width="90px" size="small">
+        <el-form-item label="商品名称"><el-input v-model="uploadForm.product_name" placeholder="请输入"></el-input></el-form-item>
+        <el-form-item label="分类ID"><el-input v-model="uploadForm.category_id" placeholder="1=手机 2=电视 ..."></el-input></el-form-item>
+        <el-form-item label="商品标题"><el-input v-model="uploadForm.product_title" placeholder="简短描述"></el-input></el-form-item>
+        <el-form-item label="详细介绍"><el-input type="textarea" :rows="2" v-model="uploadForm.product_intro"></el-input></el-form-item>
+        <el-form-item label="图片地址"><el-input v-model="uploadForm.product_picture" placeholder="URL或路径"></el-input></el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12"><el-form-item label="原价"><el-input-number v-model="uploadForm.product_price" :min="0" :precision="2" style="width:100%"></el-input-number></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="售价"><el-input-number v-model="uploadForm.product_selling_price" :min="0" :precision="2" style="width:100%"></el-input-number></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12"><el-form-item label="库存"><el-input-number v-model="uploadForm.product_num" :min="1" style="width:100%"></el-input-number></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="促销"><el-switch v-model="uploadForm.product_isPromotion"></el-switch></el-form-item></el-col>
+        </el-row>
+      </el-form>
+      <span slot="footer">
+        <el-button size="small" @click="uploadVisible=false">取消</el-button>
+        <el-button type="primary" size="small" icon="el-icon-upload2" @click="submitUpload">确认上架</el-button>
+      </span>
+    </el-dialog>
+  </div>
 </template>
 
 <script>
 import GoodDetailDialog from './GoodDetailDialog.vue'
 export default {
   components: { GoodDetailDialog },
-  mounted() {
-    this.getTableList()
-    this.currentPage = 1
-    this.tableData = this.totalTableData.slice(
-      (this.currentPage - 1) * this.pageSize,
-      this.currentPage * this.pageSize
-    )
-  },
+  mounted() { this.getTableList() },
   data() {
     return {
-      //搜索框关键字
-      search: '',
-      //查询列表数据等待
-      loading: false,
-      //分页相关
-      totalTableData: [],
-      currentPage: 1,
-      pageSize: 3,
-      //对话框相关
-      dialogVisible: false, //弹窗显隐
-      detailTitle: '', //弹窗标题
-      operateType: 'show', //弹窗操作类型 edit-编辑 show-预览
-      dialogInfo: {
-        product_id: '',
-        product_name: '',
-        category_id: '',
-        product_title: '',
-        product_picture: '',
-        product_intro: '',
-        product_price: '',
-        product_selling_price: '',
-        product_num: '',
-        product_isPromotion: '',
-        product_hot: '',
-      }, //数据参数
+      search: '', loading: false,
+      totalTableData: [], currentPage: 1, pageSize: 8,
+      dialogVisible: false, detailTitle: '', operateType: 'show', dialogInfo: {},
+      uploadVisible: false,
+      uploadForm: { product_name:'', category_id:'', product_title:'', product_intro:'', product_picture:'', product_price:0, product_selling_price:0, product_num:1, product_isPromotion:false },
     }
   },
-  watch: {
-    deep: true,
-    dialogVisible(newVal) {
-      if (newVal === false) {
-        this.getTableList()
-      }
-    },
-  },
+  watch: { dialogVisible(v) { if(!v) this.getTableList() } },
   computed: {
-    tableData() {
-      return this.totalTableData.slice(
-        (this.currentPage - 1) * this.pageSize,
-        this.currentPage * this.pageSize
-      )
-    },
+    tableData() { const s=(this.currentPage-1)*this.pageSize; return this.totalTableData.slice(s,s+this.pageSize) },
   },
   methods: {
-    //搜索框点击事件
-    searchit() {
-      this.getTableList()
-      this.currentPage = 1
-    },
-
-    //获取所有商品信息数据，用于展示在表格中
+    searchit() { this.currentPage=1; this.getTableList() },
     getTableList() {
-      this.loading = true
-      if (this.search == '') {
-        this.$axios
-          .post('/api/management/getAllProducts')
-          .then((res) => {
-            this.totalTableData = res.data.category
-          })
-          .catch((err) => {
-            return Promise.reject(err)
-          })
-      } else {
-        //搜索商品类名
-        this.$axios
-          .post('/api/management/getProductsByCategoryName', {
-            category_name: this.search,
-          })
-          .then((res) => {
-            this.totalTableData = res.data.category
-          })
-          .catch((err) => {
-            return Promise.reject(err)
-          })
+      this.loading=true
+      const api=this.search?'/api/management/getProductsByCategoryName':'/api/management/getAllProducts'
+      const data=this.search?{category_name:this.search}:{}
+      this.$axios.post(api,data).then(r=>{this.totalTableData=r.data.category||[]}).catch(()=>{}).finally(()=>{this.loading=false})
+    },
+    handleClick(type,row) {
+      if(type==='delete'){
+        this.$confirm('确定下架该商品？','提示',{type:'warning'}).then(()=>{
+          this.$axios.post('/api/product/deleteProductById',{productID:row.product_id}).then(()=>{this.$message.success('已下架');this.getTableList()})
+        }).catch(()=>{})
+        return
       }
-
-      this.loading = false
-      this.$message({
-        message: '查询成功！',
-        type: 'success',
+      this.$axios.post('/api/product/getDetails',{productID:row.product_id}).then(r=>{
+        this.dialogInfo=r.data.Product[0]; this.operateType=type; this.detailTitle=type==='show'?'商品详情':'编辑商品'; this.dialogVisible=true
       })
     },
-
-    //分页-页面切换
-    handleCurrentChange(val) {
-      this.getTableList()
-      this.currentPage = val
-      this.tableData = this.totalTableData.slice(
-        (this.currentPage - 1) * this.pageSize,
-        this.currentPage * this.pageSize
-      )
+    openUpload() { this.uploadVisible=true },
+    resetUploadForm() {
+      this.uploadForm={product_name:'',category_id:'',product_title:'',product_intro:'',product_picture:'',product_price:0,product_selling_price:0,product_num:1,product_isPromotion:false}
     },
-
-    //表格每行按钮的点击事件处理
-    handleClick(type, row) {
-      console.log(row)
-      //获取当前行的信息
-      let id = row.product_id
-      this.$axios
-        .post('/api/product/getDetails', {
-          productID: id,
-        })
-        .then((res) => {
-          this.dialogInfo = res.data.Product[0]
-          this.$message({
-            message: '查询成功',
-            type: 'success',
-          })
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-
-      switch (type) {
-        case 'show':
-          this.operateType = type
-          //把带表单的对话框的显示visible设置为true
-          this.dialogVisible = true
-          this.detailTitle = `商品详情信息`
-
-          break
-        case 'edit':
-          this.operateType = type
-          //把带表单的对话框的显示visible设置为true
-          this.dialogVisible = true
-          this.detailTitle = `修改商品信息`
-
-          break
-        case 'delete':
-          //弹出一个警告框，让用户确认是否要删除
-          this.$confirm('是否删除该商品?', '提示', {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
-            type: 'warning',
-          })
-            .then(() => {
-              //调数据库删除商品信息
-              this.deleteProduct(id)
-              this.getTableList()
-            })
-            .catch(() => {
-              this.$message({
-                type: 'info',
-                message: '已取消删除',
-              })
-            })
-          break
-      }
-    },
-
-    //删除某个商品信息
-    deleteProduct(id) {
-      this.$axios
-        .post('/api/product/deleteProductById', {
-          productID: id,
-        })
-        .then((res) => {
-          if (res.code === '001') {
-            this.$message({
-              type: 'success',
-              message: res.msg,
-            })
-          }
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-    },
-
-    //关闭对话框
-    closeDetailDialog() {
-      this.dialogVisible = false
+    submitUpload() {
+      this.$axios.post('/api/management/addProduct',{productInfo:this.uploadForm}).then(r=>{
+        if(r.data.code==='001'){this.$message.success('上架成功');this.uploadVisible=false;this.getTableList()}
+        else this.$message.error(r.data.msg||'上架失败')
+      })
     },
   },
 }
 </script>
 
-<style>
-.el-main-up {
-  width: 400px;
-  padding-top: 0px;
-  padding-bottom: 10px;
-}
-/* 面包屑CSS */
-.el-tabs--card .el-tabs__header {
-  border-bottom: none;
-}
-.breadcrumb {
-  height: 40px;
-  background-color: white;
-}
-.breadcrumb .el-breadcrumb {
-  width: 100%;
-  line-height: 40px;
-  font-size: 18px;
-  margin: 0 auto;
-}
-/* 面包屑CSS END */
+<style scoped>
+.manage-page {}
+.manage-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.manage-header h2 { font-size:18px; font-weight:600; color:var(--text, #333); }
+.header-actions { display:flex; gap:12px; align-items:center; }
+.manage-card { border-radius:8px; }
+.cell-product { display:flex; align-items:center; gap:10px; padding:4px 0; }
+.thumb { width:44px; height:44px; border-radius:6px; object-fit:contain; background:var(--bg, #f9f9f9); border:1px solid var(--border, #f0f0f0); flex-shrink:0; }
+.name { font-size:13px; color:var(--text, #333); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sub { font-size:12px; color:var(--text-muted, #999); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; }
+.c-price { color:#ff6700; font-weight:600; font-size:13px; }
+.c-old { color:#bbb; text-decoration:line-through; font-size:12px; margin-left:4px; }
+.pagi { display:flex; justify-content:flex-end; padding:12px 16px; }
 </style>

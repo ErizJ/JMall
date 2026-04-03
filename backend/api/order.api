@@ -6,24 +6,37 @@ info (
 )
 
 type (
+	// 订单行项（单个商品）
 	OrderItem {
 		ID           int64   `json:"id"`
 		OrderID      int64   `json:"order_id"`
 		UserID       int64   `json:"user_id"`
 		ProductID    int64   `json:"product_id"`
-		ProductName  string  `json:"productName"`
-		ProductImg   string  `json:"productImg"`
+		ProductName  string  `json:"product_name"`
+		ProductImg   string  `json:"product_img"`
 		ProductNum   int64   `json:"product_num"`
 		ProductPrice float64 `json:"product_price"`
 		OrderTime    string  `json:"order_time"`
 		Status       int64   `json:"status"`
 	}
+
+	// 订单组（一笔订单 = 头信息 + 多个商品行）
+	OrderGroup {
+		OrderID     int64       `json:"order_id"`
+		UserID      int64       `json:"user_id"`
+		Status      int64       `json:"status"`
+		OrderTime   string      `json:"order_time"`
+		ItemCount   int64       `json:"item_count"`
+		TotalAmount float64     `json:"total_amount"`
+		Items       []OrderItem `json:"items"`
+	}
+
 	GetOrderReq {
 		UserID int64 `json:"user_id"`
 	}
 	GetOrderResp {
-		Code   string      `json:"code"`
-		Orders []OrderItem `json:"orders,omitempty"`
+		Code   string       `json:"code"`
+		Orders []OrderGroup `json:"orders,omitempty"`
 	}
 	AddOrderItem {
 		ProductID    int64   `json:"product_id"`
@@ -42,8 +55,8 @@ type (
 		OrderID int64 `json:"order_id"`
 	}
 	GetOrderDetailResp {
-		Code   string      `json:"code"`
-		Orders []OrderItem `json:"orders,omitempty"`
+		Code  string     `json:"code"`
+		Order OrderGroup `json:"order,omitempty"`
 	}
 	DeleteOrderReq {
 		OrderID int64 `json:"order_id"`
@@ -69,4 +82,3 @@ service order-api {
 	@handler DeleteOrderHandler
 	post /order/deleteOrderById (DeleteOrderReq) returns (DeleteOrderResp)
 }
-

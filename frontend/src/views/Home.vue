@@ -1,417 +1,306 @@
 <!--
- * @Description: 首页组件
+ * @Description: 首页
  -->
 <template>
-  <div class="home" id="home" name="home">
-    <!-- 轮播图 -->
-    <div class="block" style="padding-top: 20px">
-      <el-carousel height="460px" autoplay :interval="2000" loop @click.native="carouselClick">
-        <el-carousel-item v-for="item in carousel" :key="item.carousel_id">
-          <img style="height: 460px" :src="$target + item.imgPath" :alt="item.describes" />
-        </el-carousel-item>
-      </el-carousel>
-    </div>
-    <!-- 轮播图END -->
+  <div class="home">
+    <!-- Hero 区域：左侧分类 + 轮播图 -->
+    <div class="hero">
+      <div class="hero-inner">
+        <!-- 左侧分类面板 -->
+        <aside class="hero-sidebar">
+          <router-link
+            v-for="cat in categories"
+            :key="cat.id"
+            :to="{ path: '/goods', query: { categoryID: [cat.id] } }"
+            class="sidebar-item"
+          >
+            <i :class="cat.icon"></i>
+            <span>{{ cat.name }}</span>
+            <i class="el-icon-arrow-right arrow"></i>
+          </router-link>
+        </aside>
 
-    <div class="main-box">
-      <div class="main">
-        <!-- 促销商品展示区域 -->
-        <div class="phone">
-          <div class="box-hd">
-            <div class="title">JMall 大促</div>
-          </div>
-          <div class="box-bd">
-            <div class="promo-list">
-              <router-link to>
-                <img :src="$target + 'public/imgs/phone/phone.png'" />
-              </router-link>
-            </div>
-            <div class="list">
-              <MyList :list="promotionList" :isMore="true"></MyList>
-            </div>
-          </div>
+        <!-- 轮播图 -->
+        <div class="hero-carousel">
+          <el-carousel height="400px" autoplay :interval="4000" arrow="hover" @click.native="carouselClick">
+            <el-carousel-item v-for="item in carousel" :key="item.carousel_id">
+              <div class="slide">
+                <img :src="$target + item.imgPath" :alt="item.describes" />
+              </div>
+            </el-carousel-item>
+          </el-carousel>
         </div>
-        <!-- 促销商品展示区域END -->
 
-        <!-- 推荐商品展示区域 -->
-        <div class="appliance" id="promo-menu">
-          <div class="box-hd">
-            <div class="title">JMall 推荐</div>
-            <div class="more" id="more">
-              <MyMenu :val="2" @fromChild="getChildMsg">
-                <span slot="1">猜你喜欢</span>
-                <span slot="2">平台热购TOP 7</span>
-              </MyMenu>
+        <!-- 右侧快捷入口 -->
+        <aside class="hero-aside">
+          <div class="aside-user" v-if="$store.getters.getUser">
+            <el-avatar :size="48" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+            <p class="aside-name">Hi, {{ $store.getters.getUser.userName }}</p>
+          </div>
+          <div class="aside-user" v-else>
+            <el-avatar :size="48" icon="el-icon-user-solid"></el-avatar>
+            <p class="aside-name">Hi, 请登录</p>
+            <div class="aside-btns">
+              <el-button size="mini" type="primary" @click="$store.dispatch('setShowLogin', true)">登录</el-button>
+              <el-button size="mini" @click="$parent.register = true">注册</el-button>
             </div>
           </div>
-          <div class="box-bd">
-            <div class="promo-list">
-              <ul>
-                <li>
-                  <img
-                    :src="
-                      $target + 'public/imgs/appliance/appliance-promo1.png'
-                    "
-                  />
-                </li>
-                <li>
-                  <img
-                    :src="
-                      $target + 'public/imgs/appliance/appliance-promo2.png'
-                    "
-                  />
-                </li>
-              </ul>
-            </div>
-            <div class="list">
-              <MyList :list="recommendList" :isMore="true"></MyList>
-            </div>
+          <div class="aside-shortcuts">
+            <router-link to="/order" class="shortcut"><i class="el-icon-document"></i><span>我的订单</span></router-link>
+            <router-link to="/collect" class="shortcut"><i class="el-icon-star-off"></i><span>我的收藏</span></router-link>
+            <router-link to="/shoppingCart" class="shortcut"><i class="el-icon-shopping-cart-2"></i><span>购物车</span></router-link>
+            <router-link to="/goods" class="shortcut"><i class="el-icon-goods"></i><span>全部商品</span></router-link>
           </div>
-        </div>
-        <!-- 推荐商品展示区域END -->
-
-        <!-- 手机三件套展示区域 -->
-        <div class="accessory" id="promo-menu">
-          <div class="box-hd">
-            <div class="title">手机三件套</div>
-            <div class="more" id="more">
-              <MyMenu :val="3" @fromChild="getChildMsg2">
-                <span slot="1">手机</span>
-                <span slot="2">保护套</span>
-                <span slot="3">充电器</span>
-              </MyMenu>
-            </div>
-          </div>
-          <div class="box-bd">
-            <div class="promo-list">
-              <ul>
-                <li>
-                  <img
-                    :src="
-                      $target + 'public/imgs/accessory/accessory-promo1.png'
-                    "
-                    alt
-                  />
-                </li>
-                <li>
-                  <img
-                    :src="
-                      $target + 'public/imgs/accessory/accessory-promo2.png'
-                    "
-                    alt
-                  />
-                </li>
-              </ul>
-            </div>
-            <div class="list">
-              <MyList :list="accessoryList" :isMore="true"></MyList>
-            </div>
-          </div>
-        </div>
-        <!-- 手机三件套展示区域END -->
+        </aside>
       </div>
+    </div>
+
+    <!-- 主体内容 -->
+    <div class="home-content">
+      <!-- 限时特惠 -->
+      <section class="section">
+        <div class="section-head">
+          <h2><i class="el-icon-time"></i> 限时特惠</h2>
+          <router-link to="/goods" class="more-link">更多 <i class="el-icon-arrow-right"></i></router-link>
+        </div>
+        <MyList :list="promotionList" :isMore="false"></MyList>
+      </section>
+
+      <!-- 为你推荐 -->
+      <section class="section">
+        <div class="section-head">
+          <h2><i class="el-icon-magic-stick"></i> 为你推荐</h2>
+          <div class="head-tabs">
+            <MyMenu :val="2" @fromChild="getChildMsg">
+              <span slot="1">猜你喜欢</span>
+              <span slot="2">热门 TOP 7</span>
+            </MyMenu>
+          </div>
+        </div>
+        <MyList :list="recommendList" :isMore="true"></MyList>
+      </section>
+
+      <!-- 手机三件套 -->
+      <section class="section">
+        <div class="section-head">
+          <h2><i class="el-icon-mobile-phone"></i> 手机三件套</h2>
+          <div class="head-tabs">
+            <MyMenu :val="3" @fromChild="getChildMsg2">
+              <span slot="1">手机</span>
+              <span slot="2">保护套</span>
+              <span slot="3">充电器</span>
+            </MyMenu>
+          </div>
+        </div>
+        <MyList :list="accessoryList" :isMore="true"></MyList>
+      </section>
     </div>
   </div>
 </template>
+
 <script>
 import { mapActions } from 'vuex'
 
 export default {
   data() {
     return {
-      carousel: [], // 轮播图数据
-
-      recommendList: [], // JMall推荐商品笼统称
-      promotionList: [], //促销商品列表
-
-      accessoryList: [], //配件商品列表
-      //chargerList: '', //充电器商品列表
-      //phoneList: '', // 手机商品列表
-      //protectingShellList: '', // 保护套商品列表
-
-      recommendActive: 2, // 家电当前选中的商品分类
-      accessoryActive: 2, // 配件当前选中的商品分类
+      carousel: [],
+      recommendList: [],
+      promotionList: [],
+      accessoryList: [],
+      recommendActive: 2,
+      accessoryActive: 2,
+      categories: [
+        { id: 1, name: '手机', icon: 'el-icon-mobile-phone' },
+        { id: 2, name: '电视机', icon: 'el-icon-monitor' },
+        { id: 3, name: '笔记本', icon: 'el-icon-laptop' },
+        { id: 4, name: '平板', icon: 'el-icon-tablet' },
+        { id: 5, name: '手机壳', icon: 'el-icon-suitcase' },
+        { id: 6, name: '耳机', icon: 'el-icon-headset' },
+        { id: 7, name: '充电器', icon: 'el-icon-lightning' },
+      ],
     }
   },
   watch: {
     deep: true,
-    // JMall推荐的商品分类，响应不同的商品数据
-    recommendActive: function (val) {
-      if (val == 1) {
-        // 1为个人推荐商品
-        //console.log('Now is 猜你喜欢')
-        this.getOneUserRecommendProduct()
-        //this.recommendList = this.oneUserRecommendList
-        return
-      }
-      if (val == 2) {
-        // 2为大众推荐商品
-        //console.log('Now is 大众推荐')
-        this.getAllUserRecommendProduct()
-        //this.recommendList = this.allUserRecommendList
-        return
-      }
+    recommendActive(val) {
+      if (val == 1) this.getOneUserRecommendProduct()
+      if (val == 2) this.getAllUserRecommendProduct()
     },
-    accessoryActive: function (val) {
-      if (val == 1) {
-        // 1为手机商品
-        this.getPhoneList()
-        //this.accessoryList = this.phoneList
-        return
-      }
-      if (val == 2) {
-        // 2为保护套商品
-        this.getProtectingShellList()
-        //this.accessoryList = this.protectingShellList
-        return
-      }
-      if (val == 3) {
-        //3 为充电器商品
-        this.getChargerList()
-        //this.accessoryList = this.chargerList
-        return
-      }
+    accessoryActive(val) {
+      if (val == 1) this.getPhoneList()
+      if (val == 2) this.getProtectingShellList()
+      if (val == 3) this.getChargerList()
     },
   },
   created() {
-    // 获取轮播图数据
-    this.$axios
-      .post('/api/resources/carousel', {})
-      .then((res) => {
-        //console.log('--get carousel--');
-        this.carousel = res.data.carousel
-      })
-      .catch((err) => {
-        return Promise.reject(err)
-      })
-
-    //获取推荐商品列表数据
-    //console.log('--getPromotionProduct--');
+    this.$axios.post('/api/resources/carousel', {}).then(r => { this.carousel = r.data.carousel }).catch(() => {})
     this.getPromotionProduct()
-    //console.log('--getProtectingShellList--');
     this.getProtectingShellList()
-    //console.log('--getChargerList--');
-    this.getChargerList()
-    //console.log('--getPhoneList--');
-    this.getPhoneList()
-
     this.recommendActive = 1
     this.accessoryActive = 1
-
-    // 获取各类商品数据
-    //this.getPromo('手机', 'phoneList')
-    //this.getPromo('保护套', 'protectingShellList')
-    //this.getPromo('充电器', 'chargerList')
   },
   methods: {
     ...mapActions(['setUser', 'getUser']),
-    // 获取家电模块子组件传过来的数据
-    getChildMsg(val) {
-      this.recommendActive = val
-    },
-    // 获取配件模块子组件传过来的数据
-    getChildMsg2(val) {
-      this.accessoryActive = val
-    },
-    // 获取各类商品数据方法封装
-    // getPromo(categoryName, val, api) {
-    //   api = api != undefined ? api : '/api/product/getPromoProduct'
-    //   this.$axios
-    //     .post(api, {
-    //       categoryName,
-    //     })
-    //     .then((res) => {
-    //       this[val] = res.data.Product
-    //     })
-    //     .catch((err) => {
-    //       return Promise.reject(err)
-    //     })
-    // },
-    getPhoneList() {
-      this.$axios
-        .post('/api/product/getPhoneList')
-        .then((res) => {
-          this.accessoryList = res.data.category
-          //console.log('get PhoneList数据',this.accessoryList)
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-    },
-    getProtectingShellList() {
-      this.$axios
-        .post('/api/product/getProtectingShellList')
-        .then((res) => {
-          this.accessoryList = res.data.category
-          //console.log('get ProtectingShellList数据',this.accessoryList)
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-    },
-    getChargerList() {
-      this.$axios
-        .post('/api/product/getChargerList')
-        .then((res) => {
-          this.accessoryList = res.data.category
-          //console.log('get ChargerList数据',this.accessoryList)
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-    },
-
-    //获取促销商品数据
-    getPromotionProduct() {
-      this.$axios
-        .post('/api/product/getPromotionProduct')
-        .then((res) => {
-          this.promotionList = res.data.category
-          //console.log('get 促销商品数据',this.promotionList)
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-    },
-    // 我懂了！！！之所以没数据是因为在后端返回给前端的不是category所以才会显示undefined
-    // 直接查看后端返回的是什么字段，把category修改成对应字段就好了
-
-    //获取获取单一用户推荐商品数据
-    getOneUserRecommendProduct() {
-      this.$axios
-        .post('/api/product/getOneUserRecommendProduct')
-        .then((res) => {
-          this.recommendList = res.data.category
-          //console.log('get 用户推荐商品数据')
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-    },
-
-    //获取大众推荐商品数据
-    getAllUserRecommendProduct() {
-      this.$axios
-        .post('/api/product/getAllUserRecommendProduct')
-        .then((res) => {
-          this.recommendList = res.data.category
-          //console.log('get 大众推荐商品数据')
-        })
-        .catch((err) => {
-          return Promise.reject(err)
-        })
-    },
-    
-    //轮播图点击事件,跳转到空调搜索界面
-    carouselClick(){
-      this.$router.push({
-        path: '/goods',
-        
-      })
-    }
+    getChildMsg(val) { this.recommendActive = val },
+    getChildMsg2(val) { this.accessoryActive = val },
+    getPhoneList() { this.$axios.post('/api/product/getPhoneList').then(r => { this.accessoryList = r.data.category }).catch(() => {}) },
+    getProtectingShellList() { this.$axios.post('/api/product/getProtectingShellList').then(r => { this.accessoryList = r.data.category }).catch(() => {}) },
+    getChargerList() { this.$axios.post('/api/product/getChargerList').then(r => { this.accessoryList = r.data.category }).catch(() => {}) },
+    getPromotionProduct() { this.$axios.post('/api/product/getPromotionProduct').then(r => { this.promotionList = r.data.category }).catch(() => {}) },
+    getOneUserRecommendProduct() { this.$axios.post('/api/product/getOneUserRecommendProduct').then(r => { this.recommendList = r.data.category }).catch(() => {}) },
+    getAllUserRecommendProduct() { this.$axios.post('/api/product/getAllUserRecommendProduct').then(r => { this.recommendList = r.data.category }).catch(() => {}) },
+    carouselClick() { this.$router.push({ path: '/goods' }) },
   },
 }
 </script>
+
 <style scoped>
-/*
- * @Description: 首页css样式
- */
-.home{
-background-color: #f5f5f5;
-}
+.home { background: var(--bg, #f5f5f5); }
 
-.main-box {
-  background-color: #f5f5f5;
-  padding-bottom: 20px;
+/* ===== Hero 区域 ===== */
+.hero {
+  background: var(--bg-white, #fff);
+  padding-bottom: 16px;
 }
-
-.main {
+.hero-inner {
+  max-width: var(--content-width, 1226px);
   margin: 0 auto;
-  max-width: 1225px;
+  padding: 12px 20px 0;
+  display: flex;
+  gap: 12px;
+  height: 412px;
 }
 
-/* 轮播图CSS */
-.block {
+/* 左侧分类 */
+.hero-sidebar {
+  width: 190px;
+  flex-shrink: 0;
+  background: var(--bg, #f7f7f7);
+  border-radius: 8px;
+  padding: 8px 0;
+  overflow-y: auto;
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+  transition: all 0.15s;
+  gap: 8px;
+}
+.sidebar-item i:first-child { font-size: 16px; color: var(--text-muted, #999); width: 18px; text-align: center; }
+.sidebar-item span { flex: 1; }
+.sidebar-item .arrow { font-size: 12px; color: var(--border, #ccc); }
+.sidebar-item:hover {
+  background: var(--bg-white, #fff);
+  color: var(--primary, #ff6700);
+  padding-left: 20px;
+}
+.sidebar-item:hover i { color: var(--primary, #ff6700); }
+
+/* 轮播图 */
+.hero-carousel {
+  flex: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  min-width: 0;
+}
+.slide {
+  height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  cursor: pointer;
+}
+.slide img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 右侧快捷入口 */
+.hero-aside {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.aside-user {
+  background: var(--bg-white, #fff);
+  border: 1px solid var(--border, #f0f0f0);
+  border-radius: 8px;
+  padding: 20px 16px;
+  text-align: center;
+}
+.aside-name {
+  font-size: 14px;
+  color: var(--text, #333);
+  margin-top: 8px;
+}
+.aside-btns {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.aside-shortcuts {
+  background: var(--bg-white, #fff);
+  border: 1px solid var(--border, #f0f0f0);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  flex: 1;
+}
+.shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #666);
+  transition: all 0.15s;
+}
+.shortcut i { font-size: 20px; color: var(--text-muted, #999); }
+.shortcut:hover { background: var(--bg, #f9f9f9); color: var(--primary, #ff6700); }
+.shortcut:hover i { color: var(--primary, #ff6700); }
+
+/* ===== 主体内容 ===== */
+.home-content {
+  max-width: var(--content-width, 1226px);
   margin: 0 auto;
-  max-width: 1225px;
+  padding: 0 20px 40px;
 }
 
-.el-carousel__item:nth-child(2n) {
-  background-color: #99a9bf;
+/* 区块 */
+.section { margin-top: 32px; }
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
 }
-
-.el-carousel__item:nth-child(2n + 1) {
-  background-color: #d3dce6;
+.section-head h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text, #333);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-
-/* 轮播图CSS END */
-
-.box-hd {
-  height: 58px;
-  margin: 20px 0 0 0;
+.section-head h2 i { color: var(--primary, #ff6700); font-size: 22px; }
+.more-link {
+  font-size: 13px;
+  color: var(--text-muted, #999);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.15s;
 }
-
-.box-hd .title {
-  float: left;
-  font-size: 22px;
-  font-weight: 200;
-  line-height: 58px;
-  color: #333;
-}
-
-.box-hd .more {
-  float: right;
-}
-
-.box-hd .more a {
-  font-size: 16px;
-  line-height: 58px;
-  color: #424242;
-}
-
-.box-hd .more a:hover {
-  color: #ff6700;
-}
-
-.box-bd {
-  height: 615px;
-}
-
-.box-bd .promo-list {
-  float: left;
-  height: 615px;
-  width: 234px;
-}
-
-.box-bd .promo-list li {
-  z-index: 1;
-  width: 234px;
-  height: 300px;
-  margin-bottom: 14.5px;
-  -webkit-transition: all 0.2s linear;
-  transition: all 0.2s linear;
-}
-
-.box-bd .promo-list li:hover {
-  z-index: 2;
-  -webkit-box-shadow: 0 15px 30px rgba(0, 0, 0, .1);
-  box-shadow: 0 15px 30px rgba(0, 0, 0, .1);
-  -webkit-transform: translate3d(0, -2px, 0);
-  transform: translate3d(0, -2px, 0);
-}
-
-.box-bd .promo-list li img {
-  width: 234px;
-  height: 300px;
-}
-
-.box-bd .promo-list img {
-  width: 234px;
-}
-
-.box-bd .list {
-  float: left;
-  height: 615px;
-  width: 991px;
-}
+.more-link:hover { color: var(--primary, #ff6700); }
+.head-tabs { display: flex; align-items: center; }
 </style>

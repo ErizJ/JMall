@@ -51,20 +51,22 @@ func (l *GetOrdersByUserNameLogic) GetOrdersByUserName(req *types.GetOrdersByUse
 	if err != nil {
 		return nil, err
 	}
-	productMap := make(map[int64]string, len(products))
+	productMap := make(map[int64]struct{ name, img string }, len(products))
 	for _, p := range products {
-		productMap[p.ProductId] = p.ProductName
+		productMap[p.ProductId] = struct{ name, img string }{p.ProductName, p.ProductPicture.String}
 	}
 
 	orders := make([]types.MgmtOrderItem, 0, len(rows))
 	for _, row := range rows {
+		p := productMap[row.ProductId]
 		orders = append(orders, types.MgmtOrderItem{
 			ID:           row.Id,
 			OrderID:      row.OrderId,
 			UserID:       row.UserId,
 			UserName:     user.UserName,
 			ProductID:    row.ProductId,
-			ProductName:  productMap[row.ProductId],
+			ProductName:  p.name,
+			ProductImg:   p.img,
 			ProductNum:   row.ProductNum,
 			ProductPrice: row.ProductPrice,
 			OrderTime:    time.Unix(row.OrderTime, 0).Format("2006-01-02 15:04:05"),

@@ -3,6 +3,38 @@
 
 package types
 
+type OrderItem struct {
+	ID           int64   `json:"id"`
+	OrderID      int64   `json:"order_id"`
+	UserID       int64   `json:"user_id"`
+	ProductID    int64   `json:"product_id"`
+	ProductName  string  `json:"product_name"`
+	ProductImg   string  `json:"product_img"`
+	ProductNum   int64   `json:"product_num"`
+	ProductPrice float64 `json:"product_price"`
+	OrderTime    string  `json:"order_time"`
+	Status       int64   `json:"status"`
+}
+
+type OrderGroup struct {
+	OrderID     int64       `json:"order_id"`
+	UserID      int64       `json:"user_id"`
+	Status      int64       `json:"status"`
+	OrderTime   string      `json:"order_time"`
+	ItemCount   int64       `json:"item_count"`
+	TotalAmount float64     `json:"total_amount"`
+	Items       []OrderItem `json:"items"`
+}
+
+type GetOrderReq struct {
+	UserID int64 `json:"user_id"`
+}
+
+type GetOrderResp struct {
+	Code   string       `json:"code"`
+	Orders []OrderGroup `json:"orders,omitempty"`
+}
+
 type AddOrderItem struct {
 	ProductID    int64   `json:"product_id"`
 	ProductNum   int64   `json:"product_num"`
@@ -19,41 +51,19 @@ type AddOrderResp struct {
 	OrderID int64  `json:"order_id,omitempty"`
 }
 
+type GetOrderDetailReq struct {
+	OrderID int64 `json:"order_id"`
+}
+
+type GetOrderDetailResp struct {
+	Code  string     `json:"code"`
+	Order OrderGroup `json:"order,omitempty"`
+}
+
 type DeleteOrderReq struct {
 	OrderID int64 `json:"order_id"`
 }
 
 type DeleteOrderResp struct {
 	Code string `json:"code"`
-}
-
-type GetOrderDetailReq struct {
-	OrderID int64 `json:"order_id"`
-}
-
-type GetOrderDetailResp struct {
-	Code   string      `json:"code"`
-	Orders []OrderItem `json:"orders,omitempty"`
-}
-
-type GetOrderReq struct {
-	UserID int64 `json:"user_id"`
-}
-
-type GetOrderResp struct {
-	Code   string      `json:"code"`
-	Orders []OrderItem `json:"orders,omitempty"`
-}
-
-type OrderItem struct {
-	ID           int64   `json:"id"`
-	OrderID      int64   `json:"order_id"`
-	UserID       int64   `json:"user_id"`
-	ProductID    int64   `json:"product_id"`
-	ProductName  string  `json:"productName"`
-	ProductImg   string  `json:"productImg"`
-	ProductNum   int64   `json:"product_num"`
-	ProductPrice float64 `json:"product_price"`
-	OrderTime    string  `json:"order_time"`
-	Status       int64   `json:"status"` // 0=待支付 1=已支付 2=已取消 3=已退款
 }

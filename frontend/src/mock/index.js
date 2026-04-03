@@ -201,33 +201,45 @@ const routes = [
   // ========== 订单 ==========
   ['/api/user/order/addOrder', (req) => {
     const orderId = Date.now() * 1000 + Math.floor(Math.random() * 1000)
-    const items = (req.items || []).map(item => {
+    const items = (req.items || []).map((item, i) => {
       const p = products.find(x => x.product_id === item.product_id)
       return {
-        id: Date.now(), order_id: orderId, user_id: 1,
+        id: Date.now() + i,
+        order_id: orderId,
+        user_id: 1,
         product_id: item.product_id,
         product_name: p ? p.product_name : 'Unknown',
-        product_picture: p ? p.product_picture : '',
+        product_img: p ? p.product_picture : '',
         product_num: item.product_num,
         product_price: p ? p.product_selling_price : item.product_price,
-        order_time: Date.now(), status: 0,
+        order_time: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        status: 0,
       }
     })
-    if (items.length > 0) orders.unshift(items)
+    let totalAmount = 0
+    let itemCount = 0
+    items.forEach(it => { totalAmount += it.product_price * it.product_num; itemCount += it.product_num })
+    const group = {
+      order_id: orderId, user_id: 1, status: 0,
+      order_time: items[0] ? items[0].order_time : '',
+      item_count: itemCount, total_amount: totalAmount,
+      items: items,
+    }
+    orders.unshift(group)
     return { code: '200', msg: '下单成功', order_id: orderId }
   }],
 
   ['/api/user/order/getOrder', () => ({
-    code: '001', orders: orders,
+    code: '200', orders: orders,
   })],
 
   ['/api/order/getDetails', (req) => {
-    const found = orders.find(group => group[0] && group[0].order_id === req.order_id)
-    return { code: '001', orders: found || [] }
+    const found = orders.find(g => g.order_id === req.order_id)
+    return { code: '200', order: found || {} }
   }],
 
   ['/api/order/deleteOrderById', (req) => {
-    const idx = orders.findIndex(group => group[0] && group[0].order_id === req.order_id)
+    const idx = orders.findIndex(g => g.order_id === req.order_id)
     if (idx >= 0) orders.splice(idx, 1)
     return { code: '200', msg: '删除成功' }
   }],
@@ -273,8 +285,9 @@ const routes = [
       // 同步更新订单状态
       const orderId = payments[req.payment_no].order_id
       orders.forEach(group => {
-        if (group[0] && group[0].order_id === orderId) {
-          group.forEach(item => { item.status = 1 })
+        if (group.order_id === orderId) {
+          group.status = 1
+          group.items.forEach(item => { item.status = 1 })
         }
       })
     }
@@ -290,13 +303,26 @@ const routes = [
   })],
 
   // ========== 管理后台 ==========
-  ['/api/management/getAllOrders', () => ({
-    code: '001', category: orders.flat(),
-  })],
+  ['/api/management/getAllOrders', () => {
+    // Flatten grouped orders for management view
+    const flat = []
+    orders.forEach(g => {
+      g.items.forEach(item => {
+        flat.push({ ...item, user_name: 'user' + g.user_id, product_picture: item.product_img })
+      })
+    })
+    return { code: '001', category: flat }
+  }],
 
-  ['/api/management/getOrdersByUserName', () => ({
-    code: '001', category: orders.flat(),
-  })],
+  ['/api/management/getOrdersByUserName', () => {
+    const flat = []
+    orders.forEach(g => {
+      g.items.forEach(item => {
+        flat.push({ ...item, user_name: 'user' + g.user_id, product_picture: item.product_img })
+      })
+    })
+    return { code: '001', category: flat }
+  }],
 
   ['/api/management/getAllUsers', () => ({
     code: '001',
