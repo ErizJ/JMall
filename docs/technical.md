@@ -20,6 +20,7 @@
 12. [热度系统](#12-热度系统)
 13. [数据库表结构](#13-数据库表结构)
 14. [AI 智能助手服务（aichat，端口 8888）](#14-ai-智能助手服务)
+15. [智能凑单推荐服务（recommendation，端口 8889）](#15-智能凑单推荐服务)
 
 ---
 
@@ -37,8 +38,9 @@
       ├─ /api/orders/*     → order-api     :8884
       ├─ /api/collect/*    → collect-api   :8885
       ├─ /api/management/* → management-api :8886
-      ├─ /api/payment/*   → payment-api   :8887
-      └─ /api/aichat/*    → aichat-api    :8888
+      ├─ /api/payment/*      → payment-api       :8887
+      ├─ /api/aichat/*       → aichat-api        :8888
+      └─ /api/recommend/*    → recommendation-api :8889
                   │                │
             ┌─────┴─────┐         │
             ▼           ▼         ▼
@@ -46,7 +48,7 @@
           (storedb)   (DB 0)    (ark.cn-beijing.volces.com)
 ```
 
-**8 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。其中 aichat 服务额外对接豆包大模型 API，通过 MCP 工具协议查询数据库后由大模型生成自然语言回复。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
+**9 个独立 go-zero REST 服务**，共用同一个 MySQL 数据库和同一个 Redis 实例。其中 aichat 服务额外对接豆包大模型 API，通过 MCP 工具协议查询数据库后由大模型生成自然语言回复。recommendation 服务提供智能凑满减推荐功能。每个服务有自己的 `ServiceContext`，持有数据库 Model 和 Redis Client。
 
 ---
 
@@ -156,6 +158,7 @@ userID, err := ctxutil.UserIDFromCtx(l.ctx)
 | `jmall:product:shell:7` | 5 min | GetProtectingShellList | 同上 |
 | `jmall:product:charger:7` | 5 min | GetChargerList | 同上 |
 | `jmall:order:submit:{userId}` | 5 s | AddOrder（SETNX 防重复提交） | TTL 自动过期 |
+| `jmall:recommend:fillup:{userId}:{totalHash}` | 2 min | FillUp（凑单推荐） | 购物车变更时自动过期（TTL） |
 | `jmall:stock:{productId}` | 10 min | AddOrder（Lua 原子预扣库存） | 退款/取消/删除订单时清理 |
 | `jmall:order:expire:{orderId}` | 30 min | AddOrder（订单超时标记） | TTL 自动过期 |
 | `jmall:payment:lock:{orderId}` | 30 min | CreatePayment（SETNX 防重复支付） | 支付成功/失败/过期后清理 |
@@ -1845,3 +1848,682 @@ fi
 
 → 前端 SSE 逐字渲染
 ```
+
+
+---
+
+## 15. 智能凑单推荐服务
+
+智能凑单推荐是购物车页面的核心增值功能。当用户购物车总价未达到满减门槛时，系统自动分析差额、购物车商品分类、全站热度数据，通过三种推荐策略综合评分，推荐最合适的"凑单"商品，帮助用户以最小额外消费达到满减优惠，提升客单价和转化率。
+
+### 15.1 整体架构
+
+```
+购物车页面 ShoppingCart.vue
+    │
+    └── <FillUpRecommend /> 组件
+            │
+            ▼
+    POST /api/recommend/fillup
+            │ (Nginx/DevServer proxy rewrite: /api → /)
+            ▼
+    recommendation-api :8889
+            │
+            ▼
+    AuthMiddleware（JWT 验证）
+            │
+            ▼
+    FillUpHandler → FillUpLogic.FillUp()
+            │
+            ├─ 1. ShoppingcartModel.FindByUserId()        → 获取购物车
+            ├─ 2. ProductModel.FindByIds()                 → 批量查商品详情
+            ├─ 3. CombinationProductModel.FindAll()        → 获取满减规则
+            ├─ 4. Cache.Get()                              → 尝试读缓存
+            │
+            ├─ 5. 三策略并行收集候选商品
+            │     ├─ strategyPriceGap()                    → 差额精准推荐
+            │     ├─ strategyAssociated()                   → 关联商品推荐
+            │     └─ strategyHotSelling()                   → 热销商品推荐
+            │
+            ├─ 6. deduplicateAndRank()                     → 去重 + 综合评分排序
+            ├─ 7. Cache.Set()                              → 写缓存（TTL 2min）
+            │
+            ▼
+    JSON Response → 前端渲染推荐列表
+```
+
+### 15.2 后端服务结构
+
+```
+backend/service/recommendation/
+├── recommendation.go                          # 服务入口
+├── etc/
+│   └── recommendation-api.yaml                # 配置文件（端口 8889）
+└── internal/
+    ├── config/
+    │   └── config.go                          # 配置结构体
+    ├── handler/
+    │   ├── routes.go                          # 路由注册（含 AuthMiddleware）
+    │   └── filluphandler.go                   # HTTP Handler
+    ├── logic/
+    │   └── filluplogic.go                     # 核心推荐算法（3 策略 + 评分排序）
+    ├── middleware/
+    │   └── authmiddleware.go                  # JWT 认证中间件
+    ├── svc/
+    │   └── servicecontext.go                  # 服务上下文（依赖注入）
+    └── types/
+        └── types.go                           # 请求/响应类型定义
+```
+
+### 15.3 ServiceContext
+
+```go
+type ServiceContext struct {
+    Config                  config.Config
+    Cache                   *cache.Client
+    AuthMiddleware          rest.Middleware
+    ProductModel            model.ProductModel            // 商品查询（含新增的价格区间、分类批量查询）
+    ShoppingcartModel       model.ShoppingcartModel       // 购物车查询
+    OrdersModel             model.OrdersModel             // 订单历史（预留个性化推荐）
+    CollectModel            model.CollectModel            // 收藏记录（预留个性化推荐）
+    CombinationProductModel model.CombinationProductModel // 搭配购组合 / 满减规则
+    CategoryModel           model.CategoryModel           // 商品分类
+}
+```
+
+> 注入了 6 个 Model，其中 `OrdersModel` 和 `CollectModel` 为个性化推荐预留，当前版本暂未使用。
+
+### 15.4 API 接口
+
+#### `POST /recommend/fillup` 🔒
+
+```
+输入: { user_id: int64 }（实际 userId 从 JWT context 取，请求体中的 user_id 不被信任）
+
+输出:
+{
+  "code": "200",
+  "cart_total": 7797.0,          // 购物车当前总价（售价 × 数量）
+  "nearest_rule": {
+    "threshold": 10000,          // 最近的未达标满减门槛
+    "reduction": 1000            // 对应的减免金额
+  },
+  "gap": 2203.0,                 // 还差多少钱达到门槛
+  "recommendations": [           // 推荐商品列表（最多 12 件，按综合评分降序）
+    {
+      "product_id": 25,
+      "product_name": "小米USB充电器60W快充版（6口）",
+      "category_id": 7,
+      "product_title": "6口输出，USB-C输出接口",
+      "product_picture": "public/imgs/accessory/charger-60w.png",
+      "product_price": 129,
+      "product_selling_price": 129,
+      "product_sales": 0,
+      "product_hot": 46,
+      "recommend_reason": "关联配件推荐",   // 推荐理由标签
+      "score": 78.5                         // 综合评分
+    }
+  ]
+}
+```
+
+#### 响应码
+
+| code | 含义 |
+|------|------|
+| `"200"` | 成功 |
+| `"401"` | 未登录 / Token 无效 |
+
+### 15.5 满减规则解析
+
+满减规则从 `combination_product` 表动态提取，而非硬编码。
+
+```
+getPromotionTiers()
+    │
+    ▼
+CombinationProductModel.FindAll()
+    │
+    ▼
+遍历所有记录，提取 (amountThreshold, priceReductionRange) 去重
+    │
+    ▼
+按 threshold 升序排列 → []promotionTier
+
+示例（基于种子数据）:
+  combination_product 表中存在:
+    (amountThreshold=2000, priceReductionRange=200)  ← 多条记录
+    (amountThreshold=3000, priceReductionRange=300)  ← 多条记录
+  去重后得到两档:
+    Tier 1: 满 2000 减 200
+    Tier 2: 满 3000 减 300
+```
+
+#### 最近档位匹配
+
+```
+findNearestTier(tiers, cartTotal)
+    │
+    ▼
+从低到高遍历档位:
+  cartTotal < tier.Threshold → 返回该档位 + gap
+  全部满足 → 返回 nil（已达到所有满减，无需凑单）
+
+示例:
+  cartTotal = 1800 → 命中 Tier 1，gap = 200
+  cartTotal = 2500 → 命中 Tier 2，gap = 500
+  cartTotal = 3500 → 返回 nil（已满足所有档位）
+```
+
+> **兜底机制**：如果 `combination_product` 表为空或查询失败，使用默认规则 `[{2000, 200}, {3000, 300}]`。
+
+### 15.6 三种推荐策略（核心算法）
+
+三种策略并行收集候选商品，每个候选商品携带策略基础分和推荐理由，最终由综合评分算法统一排序。
+
+#### 策略 1：差额精准推荐（strategyPriceGap）
+
+**目标**：推荐价格接近差额的商品，让用户加一件就能凑到满减门槛。
+
+```
+输入: gap（差额）, excludeIds（购物车已有商品 ID）
+
+1. 计算价格区间
+   minPrice = max(gap × 0.5, 1)    // 最低不低于 1 元
+   maxPrice = gap × 1.5
+
+   示例: gap=200 → 价格区间 [100, 300]
+
+2. 查询商品
+   ProductModel.FindByPriceRange(minPrice, maxPrice, excludeIds, limit=20)
+   SQL: SELECT ... FROM product
+        WHERE product_selling_price >= ? AND product_selling_price <= ?
+          AND product_num > 0
+          AND product_id NOT IN (购物车商品)
+        ORDER BY product_hot DESC, product_sales DESC
+        LIMIT 20
+
+3. 计算策略基础分
+   for each product:
+     priceDiff = |product.SellingPrice - gap|
+     priceScore = max(0, 100 - priceDiff/gap × 100)
+     // 价格越接近 gap，分数越高（满分 100）
+
+   示例:
+     gap=200, 商品价格=199 → priceDiff=1, score=99.5
+     gap=200, 商品价格=129 → priceDiff=71, score=64.5
+     gap=200, 商品价格=300 → priceDiff=100, score=50.0
+
+4. 返回 []scoredProduct{ product, reason="差额精准推荐", score }
+```
+
+**适用场景**：差额较小（几十到几百元），用户倾向于"加一件小东西就够了"。
+
+#### 策略 2：关联商品推荐（strategyAssociated）
+
+**目标**：推荐与购物车商品有逻辑关联的商品，提升购买合理性。
+
+```
+输入: cartProductIds, cartCategoryIds, excludeIds
+
+分两个子策略:
+
+── a) 搭配购推荐（combination_product 表）──────────────────
+for each cartProductId:
+  CombinationProductModel.FindByMainProductId(productId)
+  → 获取搭配商品 ID（vice_product_id）
+  → 排除已在购物车的
+  → ProductModel.FindOne(viceProductId)
+  → 检查库存 > 0
+  → score = 90（搭配购给最高基础分）
+  → reason = "搭配购推荐"
+
+── b) 关联品类推荐 ─────────────────────────────────────────
+关联品类映射（硬编码，基于商城实际商品关系）:
+  手机(1)   → 保护套(5), 保护膜(6), 充电器(7), 充电宝(8)
+  保护套(5) → 手机(1)
+  保护膜(6) → 手机(1)
+  充电器(7) → 手机(1)
+  充电宝(8) → 手机(1)
+
+从购物车分类 → 查找关联分类 → 去重
+ProductModel.FindByCategoryIds(relatedCatIds, excludeIds, limit=15)
+SQL: SELECT ... FROM product
+     WHERE category_id IN (关联分类)
+       AND product_num > 0
+       AND product_id NOT IN (购物车商品)
+     ORDER BY product_hot DESC, product_sales DESC
+     LIMIT 15
+
+for each product:
+  score = 70 + product_hot × 0.5   // 基础 70 分 + 热度加成
+  reason = "关联配件推荐"
+```
+
+**适用场景**：用户买了手机，推荐手机壳、充电器等配件；或者管理员在 `combination_product` 表配置了搭配购组合。
+
+**避免推荐无关商品的机制**：
+- 关联品类映射是手动维护的，不会出现"买手机推荐洗衣机"
+- 搭配购来自管理员配置，业务合理性由运营保证
+- 排除购物车已有商品，避免重复推荐
+
+#### 策略 3：热销商品推荐（strategyHotSelling）
+
+**目标**：全站热销商品兜底，保证推荐列表不为空，同时利用从众心理提升转化。
+
+```
+输入: excludeIds
+
+ProductModel.FindTopHot(limit=20)
+SQL: SELECT ... FROM product ORDER BY product_hot DESC LIMIT 20
+
+for each product:
+  排除购物车已有 + 库存为 0 的
+  score = 50 + product_hot × 0.3   // 基础 50 分 + 热度加成
+  reason = "热销推荐"
+```
+
+**适用场景**：当差额推荐和关联推荐结果不足时，热销商品作为兜底保证推荐列表有内容。
+
+#### 三策略优先级对比
+
+| 策略 | 基础分范围 | 适用场景 | 数据来源 |
+|------|-----------|---------|---------|
+| 搭配购推荐 | 90 | 管理员配置的组合商品 | `combination_product` 表 |
+| 差额精准推荐 | 0–100 | 价格接近差额的商品 | `product` 表按价格区间查询 |
+| 关联配件推荐 | 70+ | 购物车商品的关联品类 | `product` 表按分类查询 |
+| 热销推荐 | 50+ | 全站热门兜底 | `product` 表按热度排序 |
+
+> 搭配购基础分最高（90），因为这是运营人员精心配置的组合，业务价值最高。差额精准推荐的分数范围最大（0–100），价格完美匹配时可以超过搭配购。热销推荐基础分最低（50+），作为兜底策略。
+
+### 15.7 综合评分排序算法（deduplicateAndRank）
+
+三种策略收集的候选商品可能有重复（同一商品被多个策略命中），需要去重后按综合评分排序。
+
+#### 去重规则
+
+```
+遍历所有候选商品:
+  if product_id 已出现:
+    保留分数更高的那个（替换）
+  else:
+    加入去重列表
+```
+
+#### 综合评分公式
+
+```
+finalScore = strategyScore × 0.4 + priceMatchScore × 0.4 + hotScore × 0.2
+```
+
+三个维度：
+
+| 维度 | 权重 | 计算方式 | 含义 |
+|------|------|---------|------|
+| 策略基础分 | 40% | 各策略赋予的原始分数 | 推荐来源的可信度 |
+| 价格匹配分 | 40% | 商品价格与差额的接近程度 | 凑单效率（加一件就够） |
+| 热度分 | 20% | 归一化到 0–100（相对于候选池最高热度） | 大众认可度 |
+
+#### 价格匹配分计算
+
+```
+if gap > 0:
+  priceDiff = |product.SellingPrice - gap|
+  priceMatchScore = max(0, 100 - priceDiff/gap × 80)
+
+  // 惩罚机制：价格超过差额 2 倍的商品大幅降权
+  if product.SellingPrice > gap × 2:
+    priceMatchScore × = 0.3
+
+else:
+  priceMatchScore = 50   // 已满足满减时，价格匹配分统一给 50
+```
+
+**为什么要惩罚高价商品？** 凑单的核心目标是"以最小额外消费达到满减"。如果差额是 200 元，推荐一个 2000 元的商品虽然也能凑到，但违背了用户"省钱"的初衷。乘以 0.3 的惩罚系数让这类商品排到后面。
+
+#### 热度归一化
+
+```
+maxHot = 候选池中最高的 product_hot 值（至少为 1，避免除零）
+hotScore = (product.ProductHot / maxHot) × 100
+```
+
+#### 排序示例
+
+假设 gap = 200，候选池中有以下商品：
+
+| 商品 | 策略 | 策略分 | 售价 | 价格匹配分 | 热度 | 热度分 | 综合分 |
+|------|------|-------|------|-----------|------|-------|-------|
+| USB充电器60W | 关联配件 | 93 | 129 | 71.6 | 46 | 100 | 85.8 |
+| 小米MIX3保护壳 | 差额精准 | 93.5 | 12.9 | 25.2 | 2 | 4.3 | 48.3 |
+| 小米电视4A 32寸 | 热销 | 77.3 | 799 | 0 (×0.3) | 91 | 100 | 50.9 |
+
+最终排序：USB充电器60W > 小米电视4A > 小米MIX3保护壳
+
+> 充电器虽然策略分和差额精准推荐的保护壳接近，但价格匹配分和热度分都更高，综合评分胜出。电视虽然热度最高，但价格远超差额（799 > 200×2），价格匹配分被惩罚为 0，综合分被拉低。
+
+### 15.8 缓存策略
+
+```
+Cache Key: jmall:recommend:fillup:{userId}:{cartTotal}
+TTL: 2 分钟
+写入时机: FillUp() 计算完成后
+失效时机: TTL 自动过期
+```
+
+**为什么用 `cartTotal` 而非购物车内容哈希？**
+
+购物车总价变化意味着购物车内容发生了变化（增删商品或修改数量），此时差额和推荐结果都会不同，旧缓存自然失效。使用总价作为 key 的一部分，比计算购物车内容哈希更简单高效，且 2 分钟的短 TTL 保证了数据新鲜度。
+
+**缓存穿透防护**：购物车为空时直接返回空列表，不查询数据库也不写缓存。已达到所有满减档位时同样直接返回，避免无意义的推荐计算。
+
+### 15.9 新增 Model 方法
+
+为支持推荐算法，在 `ProductModel` 中新增了两个查询方法：
+
+#### FindByPriceRange
+
+```go
+func (m *customProductModel) FindByPriceRange(
+    ctx context.Context,
+    minPrice, maxPrice float64,
+    excludeIds []int64,
+    limit int,
+) ([]*Product, error)
+```
+
+```sql
+SELECT ... FROM product
+WHERE product_selling_price >= ?
+  AND product_selling_price <= ?
+  AND product_num > 0
+  AND product_id NOT IN (?, ?, ...)   -- 排除购物车已有商品
+ORDER BY product_hot DESC, product_sales DESC
+LIMIT ?
+```
+
+#### FindByCategoryIds
+
+```go
+func (m *customProductModel) FindByCategoryIds(
+    ctx context.Context,
+    categoryIds []int64,
+    excludeIds []int64,
+    limit int,
+) ([]*Product, error)
+```
+
+```sql
+SELECT ... FROM product
+WHERE category_id IN (?, ?, ...)
+  AND product_num > 0
+  AND product_id NOT IN (?, ?, ...)   -- 排除购物车已有商品
+ORDER BY product_hot DESC, product_sales DESC
+LIMIT ?
+```
+
+两个方法都：
+- 过滤库存为 0 的商品（`product_num > 0`）
+- 支持排除指定商品 ID（购物车已有的）
+- 按热度 + 销量降序排列
+- 支持 `excludeIds` 为空的情况（不加 NOT IN 子句）
+
+### 15.10 完整调用链
+
+```
+用户打开购物车页面
+    │
+    ▼
+ShoppingCart.vue 渲染 <FillUpRecommend /> 组件
+    │
+    ▼
+FillUpRecommend.mounted() → fetchRecommendations()
+    │
+    ▼
+POST /api/recommend/fillup { user_id: 1 }
+    │ (vue.config.js proxy: /api/recommend → http://localhost:8889)
+    ▼
+recommendation-api :8889
+    │
+    ├─ AuthMiddleware
+    │   → 解析 JWT → 注入 userId 到 context
+    │
+    ├─ FillUpHandler
+    │   → 解析请求体 → 调用 FillUpLogic
+    │
+    └─ FillUpLogic.FillUp()
+        │
+        ├─ 1. ShoppingcartModel.FindByUserId(userId)
+        │     → 获取购物车行 [{productId, num}, ...]
+        │
+        ├─ 2. ProductModel.FindByIds(cartProductIds)
+        │     → 批量获取商品详情（消除 N+1）
+        │     → 计算 cartTotal = Σ(sellingPrice × num)
+        │     → 收集 cartCategoryIds
+        │
+        ├─ 3. getPromotionTiers()
+        │     → CombinationProductModel.FindAll()
+        │     → 提取去重满减档位 [{2000,200}, {3000,300}]
+        │
+        ├─ 4. findNearestTier(tiers, cartTotal)
+        │     → 找到最近未达标档位 + 计算 gap
+        │     → 全部达标 → 返回空推荐
+        │
+        ├─ 5. Cache.Get(jmall:recommend:fillup:{userId}:{cartTotal})
+        │     → hit → 直接返回缓存结果
+        │     → miss → 继续计算
+        │
+        ├─ 6. 三策略并行收集
+        │     ├─ strategyPriceGap(gap, excludeIds)
+        │     │   → ProductModel.FindByPriceRange()
+        │     │   → 计算价格匹配分
+        │     │
+        │     ├─ strategyAssociated(cartProductIds, categoryIds, excludeIds)
+        │     │   → CombinationProductModel.FindByMainProductId() × N
+        │     │   → ProductModel.FindByCategoryIds(relatedCatIds)
+        │     │
+        │     └─ strategyHotSelling(excludeIds)
+        │         → ProductModel.FindTopHot(20)
+        │
+        ├─ 7. deduplicateAndRank(candidates, gap, threshold)
+        │     → 去重（保留高分）
+        │     → 综合评分 = 策略分×0.4 + 价格匹配×0.4 + 热度×0.2
+        │     → 降序排列，截取前 12 件
+        │
+        ├─ 8. Cache.Set(key, results, 2min)
+        │
+        └─ 9. 返回 FillUpResp
+              {code, cartTotal, nearestRule, gap, recommendations}
+    │
+    ▼
+前端 FillUpRecommend.vue 渲染
+    ├─ 满减进度条（gap > 0 时显示）
+    ├─ 推荐商品网格列表
+    └─ "加入购物车" 按钮
+        │
+        ├─ isExistShoppingCart → 不在 → addShoppingCart
+        │                     → 已在 → Vuex addShoppingCartNum
+        ├─ $emit('cartUpdated') → 父组件刷新购物车
+        └─ setTimeout → fetchRecommendations()（500ms 后刷新推荐）
+```
+
+### 15.11 前端实现
+
+#### 组件结构
+
+`FillUpRecommend.vue` 嵌入在 `ShoppingCart.vue` 的购物车列表下方，仅在购物车有商品时显示。
+
+```
+ShoppingCart.vue
+├── 购物车商品列表
+├── 底部结算栏
+├── <FillUpRecommend @cartUpdated="reloadCart" />   ← 新增
+│   ├── 满减进度条（promo-progress）
+│   │   ├── 文字提示："还差 ¥XX 即可享受满N减M优惠"
+│   │   └── el-progress 进度条（百分比 = cartTotal / threshold × 100）
+│   ├── 已满足提示（promo-achieved，gap=0 时显示）
+│   └── 推荐商品列表（recommend-list）
+│       └── recommend-item × N
+│           ├── 商品图片 + 名称 + 副标题
+│           ├── 售价 + 推荐理由标签（el-tag）
+│           └── "加入购物车" 按钮
+└── 满减助手抽屉（原有功能，保留）
+```
+
+#### 响应式更新机制
+
+```
+watch: {
+  getTotalPrice() {           // 监听 Vuex 中购物车总价变化
+    this.fetchRecommendations()  // 自动重新获取推荐
+  }
+}
+```
+
+当用户在购物车中修改商品数量、删除商品、或通过推荐列表加入新商品时，Vuex 中的 `getTotalPrice` 会变化，触发推荐列表自动刷新。这实现了"动态更新差额"的需求。
+
+#### 加入购物车交互流程
+
+```
+用户点击推荐商品的"加入购物车"按钮
+    │
+    ├─ 1. POST /api/user/shoppingCart/isExistShoppingCart
+    │     检查商品是否已在购物车
+    │
+    ├─ 2a. 不在购物车（code "002"）
+    │      → POST /api/user/shoppingCart/addShoppingCart
+    │      → 成功 → $emit('cartUpdated') → 父组件重新加载购物车
+    │
+    ├─ 2b. 已在购物车
+    │      → Vuex addShoppingCartNum(productId) → 本地数量 +1
+    │      → $emit('cartUpdated')
+    │
+    ├─ 3. 从推荐列表中移除已添加的商品（即时反馈）
+    │
+    └─ 4. 500ms 后重新 fetchRecommendations()
+          （等待后端购物车缓存更新，获取新的差额和推荐）
+```
+
+### 15.12 请求路由与代理
+
+#### 开发环境（vue.config.js）
+
+```javascript
+'/api/recommend': {
+  target: 'http://localhost:8889/',
+  changeOrigin: true,
+  pathRewrite: { '^/api': '' }
+}
+```
+
+前端请求 `POST /api/recommend/fillup` → 代理到 `http://localhost:8889/recommend/fillup`
+
+#### Docker 环境（nginx.conf）
+
+```nginx
+location /api/recommend/ {
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_pass http://recommendation:8889;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+### 15.13 部署配置
+
+#### docker-compose.yml
+
+```yaml
+recommendation:
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    args:
+      SERVICE: recommendation
+  container_name: jmall-recommendation
+  restart: unless-stopped
+  ports:
+    - "8889:8889"
+  environment:
+    DB_SOURCE: root:root@tcp(mysql:3306)/storedb?charset=utf8mb4&parseTime=True&loc=Local
+    REDIS_ADDR: redis:6379
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+```
+
+#### 启动命令（本地开发）
+
+```bash
+cd backend
+go run service/recommendation/recommendation.go -f service/recommendation/etc/recommendation-api.yaml
+```
+
+### 15.14 性能分析
+
+#### 数据库查询次数（单次请求）
+
+| 步骤 | 查询 | 次数 |
+|------|------|------|
+| 获取购物车 | `FindByUserId` | 1 |
+| 批量查商品 | `FindByIds` | 1 |
+| 获取满减规则 | `FindAll`（combination_product） | 1 |
+| 策略1: 差额推荐 | `FindByPriceRange` | 1 |
+| 策略2a: 搭配购 | `FindByMainProductId` × N + `FindOne` × M | N+M（N=购物车商品数） |
+| 策略2b: 关联品类 | `FindByCategoryIds` | 1 |
+| 策略3: 热销 | `FindTopHot` | 1 |
+| **总计** | | **6 + N + M**（缓存 miss 时） |
+
+典型场景（购物车 3 件商品，每件有 1 个搭配）：6 + 3 + 3 = 12 次查询。
+
+#### 优化措施
+
+1. **Redis 缓存**：2 分钟 TTL，相同购物车总价的重复请求直接返回缓存，0 次 DB 查询
+2. **批量查询**：`FindByIds` 消除购物车商品的 N+1 问题
+3. **结果截断**：每个策略最多返回 15–20 个候选，最终结果截取前 12 个
+4. **库存过滤**：SQL 层面 `product_num > 0`，避免推荐无库存商品
+
+### 15.15 进阶优化方向
+
+#### 个性化推荐（基于用户历史）
+
+`ServiceContext` 已注入 `OrdersModel` 和 `CollectModel`，可扩展第四种策略：
+
+```
+strategyPersonalized(userId, excludeIds):
+  1. OrdersModel.FindByUserId(userId) → 获取历史购买的商品分类
+  2. CollectModel.FindByUserId(userId) → 获取收藏的商品分类
+  3. 合并分类偏好 → 按频次排序
+  4. ProductModel.FindByCategoryIds(偏好分类, excludeIds, limit)
+  5. score = 80 + 偏好频次加成
+  6. reason = "猜你喜欢"
+```
+
+#### A/B 测试方案
+
+在 `FillUpLogic` 中根据用户 ID 分桶：
+
+```go
+if userID % 2 == 0 {
+    // A 组：当前综合评分公式
+    finalScore = strategyScore*0.4 + priceMatch*0.4 + hot*0.2
+} else {
+    // B 组：提高价格匹配权重
+    finalScore = strategyScore*0.3 + priceMatch*0.5 + hot*0.2
+}
+```
+
+通过对比两组的凑单转化率（推荐商品被加入购物车的比例）和满减达成率，确定最优评分公式。
+
+#### 推荐效果评估
+
+在推荐商品被加入购物车时埋点记录 `recommend_reason`，统计指标：
+
+| 指标 | 计算方式 | 目标 |
+|------|---------|------|
+| 推荐点击率 | 加入购物车次数 / 推荐展示次数 | > 5% |
+| 策略转化率 | 各策略被采纳次数 / 各策略展示次数 | 对比优化 |
+| 满减达成率 | 凑单后达到满减的用户数 / 看到推荐的用户数 | > 30% |
+| 客单价提升 | 有推荐的订单均价 - 无推荐的订单均价 | 正向提升 |

@@ -1,221 +1,162 @@
-<!-- 
-* @Description:满减助手列表组件
--->
+<!--
+ * @Description: 满减助手列表组件 - 美团凑单风格
+ -->
 <template>
-  <el-card class="box-card">
-    <div slot="header" class="clearfix">
-      <span>
-        <span style="color: #409eff; font-size: 24px">Jmall</span>
-        为你精心推荐满减组合，省钱又省时
-      </span>
+  <div class="combo-item" v-if="pairProduct && pairProduct.product_id">
+    <!-- 当前购物车商品 -->
+    <div class="product-row current">
+      <img :src="$target + item.productImg" class="product-thumb" />
+      <div class="product-detail">
+        <p class="product-name">{{ item.productName }}</p>
+        <span class="product-price">¥{{ item.price }}</span>
+      </div>
+      <span class="in-cart-tag">已在购物车</span>
     </div>
-    <el-card class="box-card" shadow="hover">
-      <img :src="$target + item.productImg" alt />
-      <h2>{{ item.productName }}</h2>
-      <!-- <h3>{{ item.productName }}</h3> -->
-      <p>
-        <span>{{ item.price }}元</span>
-        <!-- <span
-          v-show="item.product_price == item.product_selling_price"
-          class="del"
-        >{{ item.price }}元</span>-->
-      </p>
-    </el-card>
-    <el-card class="box-card" shadow="hover">
-      <img :src="$target + this.pairProduct.product_picture" alt />
-      <h2>{{ this.pairProduct.product_name }}</h2>
-      <h3>{{ this.pairProduct.product_title }}</h3>
-      <p>
-        <span>{{ this.pairProduct.product_selling_price }}元</span>
-        <span
-          v-show="
-            this.pairProduct.product_price !=
-            this.pairProduct.product_selling_price
-          "
-          class="del"
-          >{{ this.pairProduct.product_price }}元</span
-        >
-      </p>
-    </el-card>
-    <el-divider></el-divider>
-    <div class="priceDiscount">
-      <span>
-        满减价 ￥
-        <span class="discountPrice">{{
-          item.price +
-          this.pairProduct.product_price -
-          combination.priceReductionRange
-        }}</span>
-        <span class="del"
-          >￥{{ item.price + this.pairProduct.product_price }}</span
-        >
-      </span>
-      <el-button style="margin-left: 10px" type="primary" @click="selectThisCombination"
-        >收入购物车当中</el-button
+
+    <!-- 加号连接 -->
+    <div class="combo-plus">
+      <i class="el-icon-plus"></i>
+    </div>
+
+    <!-- 推荐搭配商品 -->
+    <div class="product-row pair">
+      <img :src="$target + pairProduct.product_picture" class="product-thumb" />
+      <div class="product-detail">
+        <p class="product-name">{{ pairProduct.product_name }}</p>
+        <p class="product-desc">{{ pairProduct.product_title }}</p>
+        <div class="price-row">
+          <span class="product-price">¥{{ pairProduct.product_selling_price }}</span>
+          <span
+            class="product-price-original"
+            v-if="pairProduct.product_price != pairProduct.product_selling_price"
+          >¥{{ pairProduct.product_price }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部满减信息 + 操作 -->
+    <div class="combo-footer">
+      <div class="combo-saving">
+        <span class="saving-label">组合价</span>
+        <span class="saving-price">¥{{ comboPrice }}</span>
+        <span class="saving-original">¥{{ originalPrice }}</span>
+        <span class="saving-tag">省¥{{ combination.priceReductionRange }}</span>
+      </div>
+      <button
+        class="combo-btn"
+        :class="{ added: added }"
+        :disabled="adding"
+        @click="selectThisCombination"
       >
+        <template v-if="added">
+          <i class="el-icon-check"></i> 已加入
+        </template>
+        <template v-else-if="adding">
+          <i class="el-icon-loading"></i>
+        </template>
+        <template v-else>
+          加入购物车
+        </template>
+      </button>
     </div>
-  </el-card>
+  </div>
 </template>
 
 <script>
-import { mapActions } from 'vuex'
-import { mapGetters } from 'vuex'
+import { mapActions, mapGetters } from 'vuex'
+
 export default {
   name: 'FullminusList',
-  computed: {
-    ...mapGetters(['getShoppingCart']),
-    pairProduct() {
-      return this.combinationProductList[0]
-    },
-    shoppingCart() {
-      return this.getShoppingCart
-    },
-  },
+  props: ['item', 'index'],
   data() {
     return {
       combinationProductList: [],
       combinationProductId: 0,
       combination: {},
+      adding: false,
+      added: false,
     }
+  },
+  computed: {
+    ...mapGetters(['getShoppingCart']),
+    pairProduct() {
+      return this.combinationProductList[0] || {}
+    },
+    comboPrice() {
+      if (!this.combination.priceReductionRange) return 0
+      return (
+        this.item.price +
+        (this.pairProduct.product_price || 0) -
+        this.combination.priceReductionRange
+      )
+    },
+    originalPrice() {
+      return this.item.price + (this.pairProduct.product_price || 0)
+    },
   },
   mounted() {
     this.getPairProduct()
   },
-  props: ['item', 'index', 'shutDownDrawer'],
-  //关于拼单推荐：
-  //1、价格不要超过本商品且类别不要和本商品一致
-  //2、价格超过本商品，超出用户预算
-  //3、类别和用户挑选的一致，冗余商品用户也不会购买
-  //以上3点说给系统管理员听/doge,因为这是他们设置的
   methods: {
-    ...mapActions([
-      'updateShoppingCart',
-      'deleteShoppingCart',
-      'checkAll',
-      'unshiftShoppingCart',
-    ]),
-
-    // 加入购物车
-    addShoppingCart(user_id, product_id) {
-      //若商品不在购物车，则自动加入购物车
-      //若商品已在购物车，提示用户该商品已经存在购物车之中
-      //查数据库看商品是否存在购物车之中
-      this.$axios
-        .post('/api/user/shoppingCart/isExistShoppingCart', {
-          user_id,
-          product_id,
-        })
-        .then((res) => {
-          //不在购物车，加入
-          if (res.data.code === '002') {
-            //不在加入购物车
-            this.$axios
-              .post('/api/user/shoppingCart/addShoppingCart', {
-                user_id,
-                product_id,
-              })
-              .then((res) => {
-                // 新加入购物车成功
-                this.unshiftShoppingCart(res.data.shoppingCartData[0])
-                this.notifySucceed(res.data.msg)
-              })
-          } else {
-            //在则提示
-            this.$notify({
-              title: '该组合已在购物车中',
-              message: '真是英雄所见略同，喜欢的话快去购物车买买买吧！',
-              type: 'success',
-            })
-          }
-        })
-    },
+    ...mapActions(['unshiftShoppingCart']),
 
     selectThisCombination() {
-      this.$emit('shutDownDrawer')
+      this.adding = true
+      const userId = this.$store.getters.getUser.user_id
+      const productId = this.pairProduct.product_id
 
-      //let id_1 = this.item.productID
-      //let id_2 = this.pairProduct.product_id
-
-      //遍历购物车，找到对应的商品把它的check设置为true
-      // for (let i = 0; i < this.shoppingCart.length; i++) {
-      //   if (this.shoppingCart[i].productID === this.item.productID) {
-      //     this.checkChange(true, i)
-      //   }
-      // }
-      //这里表示的是用户选择了该拼单推荐，要把对应的右边那个商品加入数据库当中
-      //将其加入数据库shoppingCart表即可
-
-      this.addShoppingCart(
-        this.$store.getters.getUser.user_id,
-        this.pairProduct.product_id
-      )
-
-      this.$router.push('/shoppingCart')
-      // this.checkChange(true, this.shoppingCart.length)
-      // console.log(this.shoppingCart)
-      //遍历购物车，找到对应的商品把它的check设置为true
-      // for (let i = 0; i < this.shoppingCart.length + 1; i++) {
-      //   if (this.shoppingCart[i].productID == this.pairProduct.product_id) {
-      //     this.checkChange(true, i)
-      //   }
-      //   console.log('购物车一行信息', this.shoppingCart[i])
-      //   console.log(i)
-      // }
-      //this.$router.push('/confirmOrder')
+      this.$axios
+        .post('/api/user/shoppingCart/isExistShoppingCart', {
+          user_id: userId,
+          product_id: productId,
+        })
+        .then((res) => {
+          if (res.data.code === '002') {
+            // 不在购物车，添加
+            this.$axios
+              .post('/api/user/shoppingCart/addShoppingCart', {
+                user_id: userId,
+                product_id: productId,
+              })
+              .then((res) => {
+                this.unshiftShoppingCart(res.data.shoppingCartData[0])
+                this.showAdded()
+              })
+              .finally(() => { this.adding = false })
+          } else {
+            // 已在购物车
+            this.showAdded()
+            this.adding = false
+          }
+        })
+        .catch(() => { this.adding = false })
     },
 
-    checkChange(val, key) {
-      // 更新vuex中购物车商品是否勾选的状态
-      this.updateShoppingCart({ key: key, prop: 'check', val: val })
+    showAdded() {
+      this.added = true
+      setTimeout(() => { this.added = false }, 1500)
     },
 
     getPairProduct() {
-      //console.log(this.item)
-      //获取与当前商品对应的组合商品的ID
       this.$axios
         .post('/api/management/getProductCombination', {
           product_id: this.item.productID,
         })
         .then((res) => {
           if (res.data.code === '001') {
-            // 001 为成功
-            let category = res.data.category
-            //console.log('category', category)
-            //这里可能会出现bug
-            this.combination = category[0]
-            //console.log('combination', this.combination)
-
+            this.combination = (res.data.category || [])[0] || {}
             this.combinationProductId = this.combination.vice_product_id
-            //console.log('combinationProductId', this.combinationProductId)
-            this.$notify({
-              title: '成功',
-              message: 'success',
-              type: 'success',
-            })
-            //获取和该商品对应的组合商品的详细信息
+            if (!this.combinationProductId) return
+
             this.$axios
               .post('/api/management/getCombinationProductList', {
                 product_id: this.combinationProductId,
               })
               .then((res) => {
                 if (res.data.code === '001') {
-                  // 001 为成功
-                  this.combinationProductList = res.data.category
-                  //console.log('combinationProductList',this.combinationProductList)
-                  this.$notify({
-                    title: '成功',
-                    message: 'success',
-                    type: 'success',
-                  })
-                  //console.log('pairProduct', this.pairProduct)
-                } else {
-                  // 提示失败信息
-                  this.notifyError(res.data.msg)
+                  this.combinationProductList = res.data.category || []
                 }
               })
-          } else {
-            // 提示失败信息
-            this.notifyError(res.data.msg)
           }
         })
     },
@@ -224,54 +165,149 @@ export default {
 </script>
 
 <style scoped>
-/* el-card {
-  width: 300px;
-  height: 180px;
-}
-el-card el-card {
-  width: 160px;
-}
-
-el-card el-card img {
-  width: 140px;
-  height: 160px;
-  margin: 0 auto;
-} */
-.box-card {
-  width: auto;
-  margin: 10px;
-}
-.box-card .box-card {
-  display: inline-block;
-}
-.box-card img {
-  display: block;
-  margin: 0 auto;
-}
-.box-card span,
-p,
-h2,
-h3 {
-  text-align: center;
+.combo-item {
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid #f0f0f0;
 }
 
-.discountPrice {
-  color: red;
-  font-size: 24px;
+/* ===== 商品行 ===== */
+.product-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
 }
-
-.del {
-  margin-left: 0.5em;
-  color: #b0b0b0;
+.product-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #f9f9f9;
+  flex-shrink: 0;
+}
+.product-detail {
+  flex: 1;
+  min-width: 0;
+}
+.product-name {
+  font-size: 13px;
+  color: #333;
+  margin: 0 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.product-desc {
+  font-size: 11px;
+  color: #bbb;
+  margin: 0 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.product-price {
   font-size: 14px;
+  font-weight: 700;
+  color: #ff6700;
+}
+.product-price-original {
+  font-size: 11px;
+  color: #ccc;
   text-decoration: line-through;
 }
-
-.priceDiscount {
-  text-align: right;
+.in-cart-tag {
+  font-size: 10px;
+  color: #52c41a;
+  background: #f0faf0;
+  border: 1px solid #d4edda;
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.priceDiscount span {
-  text-align: right;
+/* ===== 加号 ===== */
+.combo-plus {
+  text-align: center;
+  padding: 2px 0;
+  color: #ddd;
+  font-size: 14px;
+}
+
+/* ===== 底部 ===== */
+.combo-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  margin-top: 6px;
+  border-top: 1px dashed #f0f0f0;
+}
+.combo-saving {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.saving-label {
+  font-size: 11px;
+  color: #999;
+}
+.saving-price {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ff6700;
+}
+.saving-original {
+  font-size: 12px;
+  color: #ccc;
+  text-decoration: line-through;
+}
+.saving-tag {
+  font-size: 10px;
+  color: #ff6700;
+  background: #fff5ee;
+  border: 1px solid #ffe8d5;
+  padding: 0 5px;
+  border-radius: 2px;
+  line-height: 1.7;
+}
+
+/* ===== 按钮 ===== */
+.combo-btn {
+  height: 28px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 14px;
+  background: #ff6700;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  outline: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.combo-btn:hover {
+  background: #e55d00;
+}
+.combo-btn:disabled {
+  cursor: default;
+}
+.combo-btn.added {
+  background: #52c41a;
 }
 </style>

@@ -24,6 +24,8 @@ type (
 		FindTopHot(ctx context.Context, limit int) ([]*Product, error)
 		FindTopHotByCategory(ctx context.Context, categoryId int64, limit int) ([]*Product, error)
 		FindByIsPromotion(ctx context.Context, limit int) ([]*Product, error)
+		FindByPriceRange(ctx context.Context, minPrice, maxPrice float64, excludeIds []int64, limit int) ([]*Product, error)
+		FindByCategoryIds(ctx context.Context, categoryIds []int64, excludeIds []int64, limit int) ([]*Product, error)
 		IncrProductHot(ctx context.Context, productId int64) error
 		DecrStock(ctx context.Context, productId int64, num int64) error
 		IncrStock(ctx context.Context, productId int64, num int64) error
@@ -133,6 +135,58 @@ func (m *customProductModel) FindByIds(ctx context.Context, ids []int64) ([]*Pro
 
 func (m *customProductModel) WithSession(session sqlx.Session) ProductModel {
 	return NewProductModel(sqlx.NewSqlConnFromSession(session))
+}
+
+// FindByPriceRange 按价格区间查询商品，排除指定ID，按热度排序
+func (m *customProductModel) FindByPriceRange(ctx context.Context, minPrice, maxPrice float64, excludeIds []int64, limit int) ([]*Product, error) {
+	excludeClause := ""
+	args := []interface{}{minPrice, maxPrice}
+	if len(excludeIds) > 0 {
+		placeholders := strings.Repeat("?,", len(excludeIds))
+		placeholders = placeholders[:len(placeholders)-1]
+		excludeClause = fmt.Sprintf(" and `product_id` not in (%s)", placeholders)
+		for _, id := range excludeIds {
+			args = append(args, id)
+		}
+	}
+	args = append(args, limit)
+	query := fmt.Sprintf("select %s from %s where `product_selling_price` >= ? and `product_selling_price` <= ? and `product_num` > 0%s order by `product_hot` desc, `product_sales` desc limit ?", productRows, m.table, excludeClause)
+	var resp []*Product
+	err := m.conn.QueryRowsCtx(ctx, &resp, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// FindByCategoryIds 按分类ID列表查询商品，排除指定ID，按热度排序
+func (m *customProductModel) FindByCategoryIds(ctx context.Context, categoryIds []int64, excludeIds []int64, limit int) ([]*Product, error) {
+	if len(categoryIds) == 0 {
+		return nil, nil
+	}
+	catPlaceholders := strings.Repeat("?,", len(categoryIds))
+	catPlaceholders = catPlaceholders[:len(catPlaceholders)-1]
+	args := make([]interface{}, 0, len(categoryIds)+len(excludeIds)+1)
+	for _, id := range categoryIds {
+		args = append(args, id)
+	}
+	excludeClause := ""
+	if len(excludeIds) > 0 {
+		placeholders := strings.Repeat("?,", len(excludeIds))
+		placeholders = placeholders[:len(placeholders)-1]
+		excludeClause = fmt.Sprintf(" and `product_id` not in (%s)", placeholders)
+		for _, id := range excludeIds {
+			args = append(args, id)
+		}
+	}
+	args = append(args, limit)
+	query := fmt.Sprintf("select %s from %s where `category_id` in (%s) and `product_num` > 0%s order by `product_hot` desc, `product_sales` desc limit ?", productRows, m.table, catPlaceholders, excludeClause)
+	var resp []*Product
+	err := m.conn.QueryRowsCtx(ctx, &resp, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // DecrStock 扣减库存（数据库层面，事务内使用）

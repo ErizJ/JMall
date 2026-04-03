@@ -55,6 +55,11 @@ module.exports = {
         target: 'http://localhost:8888/',
         changeOrigin: true,
         pathRewrite: { '^/api': '' }
+      },
+      '/api/recommend': {
+        target: 'http://localhost:8889/',
+        changeOrigin: true,
+        pathRewrite: { '^/api': '' }
       }
     }
   }

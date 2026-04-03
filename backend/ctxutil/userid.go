@@ -9,6 +9,11 @@ type contextKey string
 
 const CtxKeyUserID contextKey = "userID"
 
+// WithUserID injects userID into context.
+func WithUserID(ctx context.Context, userID interface{}) context.Context {
+	return context.WithValue(ctx, CtxKeyUserID, userID)
+}
+
 // UserIDFromCtx extracts the userID injected by AuthMiddleware.
 // JWT MapClaims stores numbers as float64.
 func UserIDFromCtx(ctx context.Context) (int64, error) {

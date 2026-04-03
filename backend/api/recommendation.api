@@ -1,0 +1,51 @@
+syntax = "v1"
+
+info (
+	title:  "JMall Recommendation Service"
+	author: "ErizJ"
+)
+
+type (
+	// 满减规则
+	PromotionRule {
+		Threshold     float64 `json:"threshold"`
+		Reduction     float64 `json:"reduction"`
+	}
+
+	// 推荐商品项
+	RecommendItem {
+		ProductID           int64   `json:"product_id"`
+		ProductName         string  `json:"product_name"`
+		CategoryID          int64   `json:"category_id"`
+		ProductTitle        string  `json:"product_title"`
+		ProductPicture      string  `json:"product_picture"`
+		ProductPrice        float64 `json:"product_price"`
+		ProductSellingPrice float64 `json:"product_selling_price"`
+		ProductSales        int64   `json:"product_sales"`
+		ProductHot          int64   `json:"product_hot"`
+		RecommendReason     string  `json:"recommend_reason"`
+		Score               float64 `json:"score"`
+	}
+
+	// 凑单推荐请求
+	FillUpReq {
+		UserID int64 `json:"user_id"`
+	}
+
+	// 凑单推荐响应
+	FillUpResp {
+		Code           string          `json:"code"`
+		CartTotal      float64         `json:"cart_total"`
+		NearestRule    PromotionRule   `json:"nearest_rule"`
+		Gap            float64         `json:"gap"`
+		Recommendations []RecommendItem `json:"recommendations,omitempty"`
+	}
+)
+
+@server (
+	middleware: AuthMiddleware
+)
+service recommendation-api {
+	@handler FillUpHandler
+	post /recommend/fillup (FillUpReq) returns (FillUpResp)
+}

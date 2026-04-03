@@ -126,21 +126,32 @@
       </div>
     </div>
 
+    <!-- 智能凑单推荐 -->
+    <div class="cart-wrap" v-if="getShoppingCart.length > 0">
+      <FillUpRecommend @cartUpdated="reloadCart" />
+    </div>
+
     <!-- 满减助手抽屉 -->
     <el-drawer
-      title="满减助手"
       :visible.sync="table"
       direction="ltr"
-      size="420px"
-      :with-header="true"
+      size="380px"
+      :with-header="false"
     >
-      <div style="padding: 0 16px">
-        <div v-for="(item, index) in getShoppingCart" :key="item.id">
-          <FullminusList
-            :item="item"
-            :index="index"
-            @shutDownDrawer="shutDownDrawer"
-          ></FullminusList>
+      <div class="drawer-inner">
+        <div class="drawer-header">
+          <span class="drawer-title">
+            <i class="el-icon-present"></i> 满减凑单
+          </span>
+          <span class="drawer-close" @click="table = false">
+            <i class="el-icon-close"></i>
+          </span>
+        </div>
+        <div class="drawer-tip">为购物车中的商品推荐满减搭配</div>
+        <div class="drawer-body">
+          <div v-for="(item, index) in getShoppingCart" :key="item.id">
+            <FullminusList :item="item" :index="index"></FullminusList>
+          </div>
         </div>
       </div>
     </el-drawer>
@@ -151,14 +162,37 @@
 import { mapActions } from 'vuex'
 import { mapGetters } from 'vuex'
 import FullminusList from '../components/FullminusList.vue'
+import FillUpRecommend from '../components/FillUpRecommend.vue'
 
 export default {
   data() {
     return { table: false }
   },
-  components: { FullminusList },
+  components: { FullminusList, FillUpRecommend },
   methods: {
     ...mapActions(['updateShoppingCart', 'deleteShoppingCart', 'checkAll']),
+    reloadCart() {
+      // 重新加载购物车数据
+      this.$axios
+        .post('/api/user/shoppingCart/getShoppingCart', {
+          user_id: this.$store.getters.getUser.user_id,
+        })
+        .then((res) => {
+          if (res.data.code === '200' && res.data.items) {
+            const cart = res.data.items.map((item) => ({
+              id: item.id,
+              productID: item.product_id,
+              productName: item.productName,
+              productImg: item.productImg,
+              price: item.price,
+              num: item.num,
+              maxNum: item.maxNum,
+              check: false,
+            }))
+            this.$store.dispatch('setShoppingCart', cart)
+          }
+        })
+    },
     handleChange(currentValue, key, productID) {
       this.updateShoppingCart({ key: key, prop: 'check', val: true })
       this.$axios
@@ -195,9 +229,6 @@ export default {
           }
         })
         .catch((err) => Promise.reject(err))
-    },
-    shutDownDrawer() {
-      this.table = false
     },
   },
   computed: {
@@ -399,6 +430,46 @@ export default {
   padding: 0 36px;
   font-size: 16px;
   border-radius: 22px;
+}
+
+/* 抽屉 */
+.drawer-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 0;
+}
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+.drawer-title i {
+  color: #ff6700;
+  margin-right: 4px;
+}
+.drawer-close {
+  cursor: pointer;
+  color: #999;
+  font-size: 18px;
+}
+.drawer-close:hover {
+  color: #333;
+}
+.drawer-tip {
+  font-size: 12px;
+  color: #999;
+  padding: 6px 16px 12px;
+}
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 16px;
 }
 
 /* 空购物车 */
